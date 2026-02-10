@@ -29,7 +29,7 @@
       "displayName": "configurePresets_base",
       "description": "base configurePresets",
       "generator": "Unix Makefiles",
-      "toolchainFile": "",
+      "toolchainFile": "${sourceDir}/cmake/riscv64-toolchain.cmake",
       "binaryDir": "${sourceDir}/build",
       "installDir": "${sourceDir}/build/install",
       "cacheVariables": {
