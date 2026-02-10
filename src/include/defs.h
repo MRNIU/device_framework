@@ -5,28 +5,9 @@
 #ifndef VIRTIO_DEFS_H
 #define VIRTIO_DEFS_H
 
-#include "virtio/types.h"
+#include <cstdint>
 
-namespace virtio {
-
-/**
- * @brief 设备状态位定义
- * @see virtio-v1.2#2.1
- */
-enum class DeviceStatus : uint8_t {
-  /// 表示 OS 已识别设备 (ACKNOWLEDGE)
-  kAcknowledge = 1,
-  /// 表示 OS 已匹配到驱动 (DRIVER)
-  kDriver = 2,
-  /// 驱动准备就绪，设备可用 (DRIVER_OK)
-  kDriverOk = 4,
-  /// 设备特性协商完成 (FEATURES_OK)
-  kFeaturesOk = 8,
-  /// 设备需要重置 (DEVICE_NEEDS_RESET)
-  kDeviceNeedsReset = 64,
-  /// 设备出现不可恢复的错误 (FAILED)
-  kFailed = 128,
-};
+namespace virtio_driver {
 
 /**
  * @brief Virtio 设备 ID 定义
@@ -112,6 +93,6 @@ enum class ReservedFeature : uint64_t {
   kRingReset = 1ULL << 40,
 };
 
-}  // namespace virtio
+}  // namespace virtio_driver
 
 #endif /* VIRTIO_DEFS_H */
