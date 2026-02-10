@@ -32,42 +32,39 @@ namespace virtio_driver::blk {
 /**
  * @brief 块设备特性位定义
  * @see virtio-v1.2#5.2.3 Feature bits
- * @todo 这里改成枚举
  *
  * 特性位用于在设备初始化期间协商设备功能。
  * 驱动程序通过读取设备特性位来确定设备支持哪些功能，
  * 并通过写入驱动程序特性位来确认要使用的功能。
  */
-namespace blk_feature {
-
-/// 设备配置空间中 size_max 字段有效 (VIRTIO_BLK_F_SIZE_MAX)
-static constexpr uint64_t kSizeMax = 1ULL << 1;
-/// 设备配置空间中 seg_max 字段有效 (VIRTIO_BLK_F_SEG_MAX)
-static constexpr uint64_t kSegMax = 1ULL << 2;
-/// 设备配置空间中 geometry 字段有效 (VIRTIO_BLK_F_GEOMETRY)
-static constexpr uint64_t kGeometry = 1ULL << 4;
-/// 设备为只读设备 (VIRTIO_BLK_F_RO)
-static constexpr uint64_t kRo = 1ULL << 5;
-/// 设备配置空间中 blk_size 字段有效 (VIRTIO_BLK_F_BLK_SIZE)
-static constexpr uint64_t kBlkSize = 1ULL << 6;
-/// 设备支持缓存刷新命令 (VIRTIO_BLK_F_FLUSH)
-static constexpr uint64_t kFlush = 1ULL << 9;
-/// 设备配置空间中 topology 字段有效 (VIRTIO_BLK_F_TOPOLOGY)
-static constexpr uint64_t kTopology = 1ULL << 10;
-/// 设备可在回写和直写缓存模式间切换 (VIRTIO_BLK_F_CONFIG_WCE)
-static constexpr uint64_t kConfigWce = 1ULL << 11;
-/// 设备支持多队列 (VIRTIO_BLK_F_MQ)
-static constexpr uint64_t kMq = 1ULL << 12;
-/// 设备支持 discard 命令 (VIRTIO_BLK_F_DISCARD)
-static constexpr uint64_t kDiscard = 1ULL << 13;
-/// 设备支持 write zeroes 命令 (VIRTIO_BLK_F_WRITE_ZEROES)
-static constexpr uint64_t kWriteZeroes = 1ULL << 14;
-/// 设备支持提供存储生命周期信息 (VIRTIO_BLK_F_LIFETIME)
-static constexpr uint64_t kLifetime = 1ULL << 15;
-/// 设备支持 secure erase 命令 (VIRTIO_BLK_F_SECURE_ERASE)
-static constexpr uint64_t kSecureErase = 1ULL << 16;
-
-}  // namespace blk_feature
+enum class BlkFeatureBit : uint64_t {
+  /// 设备配置空间中 size_max 字段有效 (VIRTIO_BLK_F_SIZE_MAX)
+  kSizeMax = 1ULL << 1,
+  /// 设备配置空间中 seg_max 字段有效 (VIRTIO_BLK_F_SEG_MAX)
+  kSegMax = 1ULL << 2,
+  /// 设备配置空间中 geometry 字段有效 (VIRTIO_BLK_F_GEOMETRY)
+  kGeometry = 1ULL << 4,
+  /// 设备为只读设备 (VIRTIO_BLK_F_RO)
+  kRo = 1ULL << 5,
+  /// 设备配置空间中 blk_size 字段有效 (VIRTIO_BLK_F_BLK_SIZE)
+  kBlkSize = 1ULL << 6,
+  /// 设备支持缓存刷新命令 (VIRTIO_BLK_F_FLUSH)
+  kFlush = 1ULL << 9,
+  /// 设备配置空间中 topology 字段有效 (VIRTIO_BLK_F_TOPOLOGY)
+  kTopology = 1ULL << 10,
+  /// 设备可在回写和直写缓存模式间切换 (VIRTIO_BLK_F_CONFIG_WCE)
+  kConfigWce = 1ULL << 11,
+  /// 设备支持多队列 (VIRTIO_BLK_F_MQ)
+  kMq = 1ULL << 12,
+  /// 设备支持 discard 命令 (VIRTIO_BLK_F_DISCARD)
+  kDiscard = 1ULL << 13,
+  /// 设备支持 write zeroes 命令 (VIRTIO_BLK_F_WRITE_ZEROES)
+  kWriteZeroes = 1ULL << 14,
+  /// 设备支持提供存储生命周期信息 (VIRTIO_BLK_F_LIFETIME)
+  kLifetime = 1ULL << 15,
+  /// 设备支持 secure erase 命令 (VIRTIO_BLK_F_SECURE_ERASE)
+  kSecureErase = 1ULL << 16,
+};
 
 /**
  * @brief 块设备配置空间布局
@@ -150,37 +147,34 @@ struct BlkConfig {
 /**
  * @brief 块设备配置空间字段偏移量
  * @see virtio-v1.2#5.2.4
- * @todo 这里改成枚举
  *
  * 这些常量定义了各个配置字段在配置空间中的字节偏移量，
  * 用于通过传输层 ReadConfigU* 系列函数访问配置空间。
  */
-namespace blk_config_offset {
-
-static constexpr uint32_t kCapacity = 0;
-static constexpr uint32_t kSizeMax = 8;
-static constexpr uint32_t kSegMax = 12;
-static constexpr uint32_t kGeometryCylinders = 16;
-static constexpr uint32_t kGeometryHeads = 18;
-static constexpr uint32_t kGeometrySectors = 19;
-static constexpr uint32_t kBlkSize = 20;
-static constexpr uint32_t kTopologyPhysBlockExp = 24;
-static constexpr uint32_t kTopologyAlignOffset = 25;
-static constexpr uint32_t kTopologyMinIoSize = 26;
-static constexpr uint32_t kTopologyOptIoSize = 28;
-static constexpr uint32_t kWriteback = 32;
-static constexpr uint32_t kMaxDiscardSectors = 36;
-static constexpr uint32_t kMaxDiscardSeg = 40;
-static constexpr uint32_t kDiscardSectorAlignment = 44;
-static constexpr uint32_t kMaxWriteZeroesSectors = 48;
-static constexpr uint32_t kMaxWriteZeroesSeg = 52;
-static constexpr uint32_t kWriteZeroesMayUnmap = 56;
-static constexpr uint32_t kMaxSecureEraseSectors = 60;
-static constexpr uint32_t kMaxSecureEraseSeg = 64;
-static constexpr uint32_t kSecureEraseSectorAlignment = 68;
-static constexpr uint32_t kNumQueues = 72;
-
-}  // namespace blk_config_offset
+enum class BlkConfigOffset : uint32_t {
+  kCapacity = 0,
+  kSizeMax = 8,
+  kSegMax = 12,
+  kGeometryCylinders = 16,
+  kGeometryHeads = 18,
+  kGeometrySectors = 19,
+  kBlkSize = 20,
+  kTopologyPhysBlockExp = 24,
+  kTopologyAlignOffset = 25,
+  kTopologyMinIoSize = 26,
+  kTopologyOptIoSize = 28,
+  kWriteback = 32,
+  kMaxDiscardSectors = 36,
+  kMaxDiscardSeg = 40,
+  kDiscardSectorAlignment = 44,
+  kMaxWriteZeroesSectors = 48,
+  kMaxWriteZeroesSeg = 52,
+  kWriteZeroesMayUnmap = 56,
+  kMaxSecureEraseSectors = 60,
+  kMaxSecureEraseSeg = 64,
+  kSecureEraseSectorAlignment = 68,
+  kNumQueues = 72,
+};
 
 /**
  * @brief 块设备请求类型
@@ -271,11 +265,21 @@ struct BlkDiscardWriteZeroes {
  * 用于 eMMC/UFS 等存储设备报告磨损程度。
  */
 struct BlkLifetime {
+  /**
+   * @brief Pre-EOL 信息常量
+   */
+  enum class PreEolInfo : uint16_t {
+    /// 0: 值未定义 (VIRTIO_BLK_PRE_EOL_INFO_UNDEFINED)
+    kUndefined = 0,
+    /// 1: 正常，< 80% 保留块已消耗 (VIRTIO_BLK_PRE_EOL_INFO_NORMAL)
+    kNormal = 1,
+    /// 2: 警告，80% 保留块已消耗 (VIRTIO_BLK_PRE_EOL_INFO_WARNING)
+    kWarning = 2,
+    /// 3: 紧急，90% 保留块已消耗 (VIRTIO_BLK_PRE_EOL_INFO_URGENT)
+    kUrgent = 3,
+  };
+
   /// 预 EOL (End-Of-Life) 信息
-  /// - 0: 值未定义 (VIRTIO_BLK_PRE_EOL_INFO_UNDEFINED)
-  /// - 1: 正常，< 80% 保留块已消耗 (VIRTIO_BLK_PRE_EOL_INFO_NORMAL)
-  /// - 2: 警告，80% 保留块已消耗 (VIRTIO_BLK_PRE_EOL_INFO_WARNING)
-  /// - 3: 紧急，90% 保留块已消耗 (VIRTIO_BLK_PRE_EOL_INFO_URGENT)
   uint16_t pre_eol_info;
   /// 设备生命周期估计 A（SLC 单元磨损）
   /// 0x01-0x0a: 使用了 x*10% 生命周期
@@ -285,18 +289,6 @@ struct BlkLifetime {
   /// 含义同 device_lifetime_est_typ_a
   uint16_t device_lifetime_est_typ_b;
 } __attribute__((packed));
-
-/// Pre-EOL 信息常量
-namespace pre_eol_info {
-/// 值未定义
-static constexpr uint16_t kUndefined = 0;
-/// 正常，< 80% 保留块已消耗
-static constexpr uint16_t kNormal = 1;
-/// 警告，80% 保留块已消耗
-static constexpr uint16_t kWarning = 2;
-/// 紧急，90% 保留块已消耗
-static constexpr uint16_t kUrgent = 3;
-}  // namespace pre_eol_info
 
 /// 标准扇区大小（字节）
 static constexpr size_t kSectorSize = 512;
@@ -353,7 +345,81 @@ static constexpr size_t kDeviceIdMaxLen = 20;
  * @note 当前实现仅支持单队列模式
  * @note 所有 DMA 缓冲区必须位于物理连续内存
  */
+// 前向声明
+class BlkRequest;
+
+/**
+ * @brief Virtio 块设备驱动
+ * @see virtio-v1.2#5.2 Block Device
+ *
+ * virtio 块设备是一个简单的虚拟块设备（即磁盘）。
+ * 读写请求（以及其他特殊请求）被放置在请求队列中，由设备服务（可能乱序）。
+ *
+ * ### 设备特性
+ * - 支持读写操作（512 字节扇区）
+ * - 支持缓存刷新 (FLUSH)
+ * - 支持 discard/write zeroes/secure erase（需要相应特性）
+ * - 支持多队列（需要 VIRTIO_BLK_F_MQ）
+ * - 支持设备生命周期信息（需要 VIRTIO_BLK_F_LIFETIME）
+ *
+ * ### 请求格式
+ * 使用 Split Virtqueue，每个请求由 3 个描述符链组成：
+ * 1. 请求头（设备只读）: BlkReqHeader
+ * 2. 数据缓冲区（读=设备只写，写=设备只读）
+ * 3. 状态字节（设备只写）: BlkStatus
+ *
+ * ### 使用示例（传统方式）
+ * ```cpp
+ * // 1. 创建传输层
+ * auto transport = MmioTransport::create(base_addr).value();
+ *
+ * // 2. 分配 virtqueue DMA 内存
+ * auto queue_max = transport.get_queue_num_max(0);
+ * auto mem_size = SplitVirtqueue::calc_size(queue_max);
+ * auto* mem = platform.alloc_pages(pages_needed);
+ * auto vq = SplitVirtqueue::create(mem, mem_size, queue_max, phys).value();
+ *
+ * // 3. 创建并初始化块设备
+ * auto blk = VirtioBlk::create(transport, vq, platform).value();
+ *
+ * // 4. 读取配置并发起请求
+ * auto config = blk.read_config();
+ * BlkReqHeader header{};
+ * uint8_t data[512];
+ * uint8_t status_byte;
+ * blk.read(0, data, &status_byte, &header);
+ *
+ * // 5. 中断处理
+ * blk.process_used();
+ * ```
+ *
+ * ### 使用示例（RAII 封装）
+ * ```cpp
+ * // 使用 BlkRequest 自动管理生命周期
+ * #include "blk_request.hpp"
+ *
+ * auto blk = VirtioBlk::create(...).value();
+ * uint8_t data[512];
+ *
+ * // 同步读取
+ * auto req = BlkRequest::read(blk, 0, data).value();
+ * auto status = req.wait();
+ *
+ * // 异步读取
+ * auto req = BlkRequest::read(blk, 0, data).value();
+ * // ... 执行其他操作 ...
+ * if (req.is_complete()) {
+ *     auto status = req.status().value();
+ * }
+ * ```
+ *
+ * @note 当前实现仅支持单队列模式
+ * @note 所有 DMA 缓冲区必须位于物理连续内存
+ */
 class VirtioBlk {
+  // BlkRequest 需要访问 do_request()
+  friend class BlkRequest;
+
  public:
   /**
    * @brief 创建并初始化块设备
@@ -374,15 +440,13 @@ class VirtioBlk {
    * @param vq 预创建的 SplitVirtqueue（单队列）
    * @param platform 平台操作接口（提供物理地址转换和内存屏障）
    * @param driver_features 驱动希望启用的额外特性位（默认仅 VERSION_1）
-   *        例如：blk_feature::kFlush | blk_feature::kDiscard
    * @return 成功返回 VirtioBlk 实例，失败返回错误
    * @retval Error::kFeatureNegotiationFailed 特性协商失败（设备不支持
    * VERSION_1）
    */
-  [[nodiscard]] static auto create(Transport& transport, SplitVirtqueue& vq,
-                                   const PlatformOps& platform,
-                                   uint64_t driver_features = 0)
-      -> Result<VirtioBlk> {
+  [[nodiscard]] static auto create(
+      Transport& transport, SplitVirtqueue& vq, const PlatformOps& platform,
+      uint64_t driver_features = 0) -> Result<VirtioBlk> {
     // 1. 重置设备
     transport.Reset();
 
@@ -401,7 +465,7 @@ class VirtioBlk {
     // 必须支持 VERSION_1
     if ((negotiated & static_cast<uint64_t>(ReservedFeature::kVersion1)) == 0) {
       transport.SetStatus(Transport::kFailed);
-      return Error::kFeatureNegotiationFailed;
+      return ErrorCode::kFeatureNegotiationFailed;
     }
 
     transport.SetDriverFeatures(negotiated);
@@ -413,7 +477,7 @@ class VirtioBlk {
     // 6. 验证 FEATURES_OK
     if ((transport.GetStatus() & Transport::kFeaturesOk) == 0) {
       transport.SetStatus(Transport::kFailed);
-      return Error::kFeatureNegotiationFailed;
+      return ErrorCode::kFeatureNegotiationFailed;
     }
 
     // 7. 配置 virtqueue 0（块设备仅使用一个队列）
@@ -471,8 +535,8 @@ class VirtioBlk {
    * @note 所有缓冲区在请求完成前不得释放或修改
    */
   [[nodiscard]] auto write(uint64_t sector, const uint8_t* data,
-                           uint8_t* status_out, BlkReqHeader* header)
-      -> Result<void> {
+                           uint8_t* status_out,
+                           BlkReqHeader* header) -> Result<void> {
     return do_request(ReqType::kOut, sector, const_cast<uint8_t*>(data),
                       status_out, header);
   }
@@ -543,59 +607,65 @@ class VirtioBlk {
     BlkConfig config{};
 
     // 读取基本配置（总是可用）
-    config.capacity = transport_.ReadConfigU64(blk_config_offset::kCapacity);
-    config.size_max = transport_.ReadConfigU32(blk_config_offset::kSizeMax);
-    config.seg_max = transport_.ReadConfigU32(blk_config_offset::kSegMax);
+    config.capacity = transport_.ReadConfigU64(
+        static_cast<uint32_t>(BlkConfigOffset::kCapacity));
+    config.size_max = transport_.ReadConfigU32(
+        static_cast<uint32_t>(BlkConfigOffset::kSizeMax));
+    config.seg_max = transport_.ReadConfigU32(
+        static_cast<uint32_t>(BlkConfigOffset::kSegMax));
 
     // 几何信息（如果 VIRTIO_BLK_F_GEOMETRY 被协商）
-    config.geometry.cylinders =
-        transport_.ReadConfigU16(blk_config_offset::kGeometryCylinders);
-    config.geometry.heads =
-        transport_.ReadConfigU8(blk_config_offset::kGeometryHeads);
-    config.geometry.sectors =
-        transport_.ReadConfigU8(blk_config_offset::kGeometrySectors);
+    config.geometry.cylinders = transport_.ReadConfigU16(
+        static_cast<uint32_t>(BlkConfigOffset::kGeometryCylinders));
+    config.geometry.heads = transport_.ReadConfigU8(
+        static_cast<uint32_t>(BlkConfigOffset::kGeometryHeads));
+    config.geometry.sectors = transport_.ReadConfigU8(
+        static_cast<uint32_t>(BlkConfigOffset::kGeometrySectors));
 
-    config.blk_size = transport_.ReadConfigU32(blk_config_offset::kBlkSize);
+    config.blk_size = transport_.ReadConfigU32(
+        static_cast<uint32_t>(BlkConfigOffset::kBlkSize));
 
     // 拓扑信息（如果 VIRTIO_BLK_F_TOPOLOGY 被协商）
-    config.topology.physical_block_exp =
-        transport_.ReadConfigU8(blk_config_offset::kTopologyPhysBlockExp);
-    config.topology.alignment_offset =
-        transport_.ReadConfigU8(blk_config_offset::kTopologyAlignOffset);
-    config.topology.min_io_size =
-        transport_.ReadConfigU16(blk_config_offset::kTopologyMinIoSize);
-    config.topology.opt_io_size =
-        transport_.ReadConfigU32(blk_config_offset::kTopologyOptIoSize);
+    config.topology.physical_block_exp = transport_.ReadConfigU8(
+        static_cast<uint32_t>(BlkConfigOffset::kTopologyPhysBlockExp));
+    config.topology.alignment_offset = transport_.ReadConfigU8(
+        static_cast<uint32_t>(BlkConfigOffset::kTopologyAlignOffset));
+    config.topology.min_io_size = transport_.ReadConfigU16(
+        static_cast<uint32_t>(BlkConfigOffset::kTopologyMinIoSize));
+    config.topology.opt_io_size = transport_.ReadConfigU32(
+        static_cast<uint32_t>(BlkConfigOffset::kTopologyOptIoSize));
 
     // 缓存模式（如果 VIRTIO_BLK_F_CONFIG_WCE 被协商）
-    config.writeback = transport_.ReadConfigU8(blk_config_offset::kWriteback);
+    config.writeback = transport_.ReadConfigU8(
+        static_cast<uint32_t>(BlkConfigOffset::kWriteback));
 
     // Discard 支持（如果 VIRTIO_BLK_F_DISCARD 被协商）
-    config.max_discard_sectors =
-        transport_.ReadConfigU32(blk_config_offset::kMaxDiscardSectors);
-    config.max_discard_seg =
-        transport_.ReadConfigU32(blk_config_offset::kMaxDiscardSeg);
-    config.discard_sector_alignment =
-        transport_.ReadConfigU32(blk_config_offset::kDiscardSectorAlignment);
+    config.max_discard_sectors = transport_.ReadConfigU32(
+        static_cast<uint32_t>(BlkConfigOffset::kMaxDiscardSectors));
+    config.max_discard_seg = transport_.ReadConfigU32(
+        static_cast<uint32_t>(BlkConfigOffset::kMaxDiscardSeg));
+    config.discard_sector_alignment = transport_.ReadConfigU32(
+        static_cast<uint32_t>(BlkConfigOffset::kDiscardSectorAlignment));
 
     // Write Zeroes 支持（如果 VIRTIO_BLK_F_WRITE_ZEROES 被协商）
-    config.max_write_zeroes_sectors =
-        transport_.ReadConfigU32(blk_config_offset::kMaxWriteZeroesSectors);
-    config.max_write_zeroes_seg =
-        transport_.ReadConfigU32(blk_config_offset::kMaxWriteZeroesSeg);
-    config.write_zeroes_may_unmap =
-        transport_.ReadConfigU8(blk_config_offset::kWriteZeroesMayUnmap);
+    config.max_write_zeroes_sectors = transport_.ReadConfigU32(
+        static_cast<uint32_t>(BlkConfigOffset::kMaxWriteZeroesSectors));
+    config.max_write_zeroes_seg = transport_.ReadConfigU32(
+        static_cast<uint32_t>(BlkConfigOffset::kMaxWriteZeroesSeg));
+    config.write_zeroes_may_unmap = transport_.ReadConfigU8(
+        static_cast<uint32_t>(BlkConfigOffset::kWriteZeroesMayUnmap));
 
     // Secure Erase 支持（如果 VIRTIO_BLK_F_SECURE_ERASE 被协商）
-    config.max_secure_erase_sectors =
-        transport_.ReadConfigU32(blk_config_offset::kMaxSecureEraseSectors);
-    config.max_secure_erase_seg =
-        transport_.ReadConfigU32(blk_config_offset::kMaxSecureEraseSeg);
+    config.max_secure_erase_sectors = transport_.ReadConfigU32(
+        static_cast<uint32_t>(BlkConfigOffset::kMaxSecureEraseSectors));
+    config.max_secure_erase_seg = transport_.ReadConfigU32(
+        static_cast<uint32_t>(BlkConfigOffset::kMaxSecureEraseSeg));
     config.secure_erase_sector_alignment = transport_.ReadConfigU32(
-        blk_config_offset::kSecureEraseSectorAlignment);
+        static_cast<uint32_t>(BlkConfigOffset::kSecureEraseSectorAlignment));
 
     // 多队列支持（如果 VIRTIO_BLK_F_MQ 被协商）
-    config.num_queues = transport_.ReadConfigU16(blk_config_offset::kNumQueues);
+    config.num_queues = transport_.ReadConfigU16(
+        static_cast<uint32_t>(BlkConfigOffset::kNumQueues));
 
     return config;
   }
@@ -607,7 +677,8 @@ class VirtioBlk {
    * @return 设备容量（以 512 字节扇区为单位）
    */
   [[nodiscard]] auto capacity() const -> uint64_t {
-    return transport_.ReadConfigU64(blk_config_offset::kCapacity);
+    return transport_.ReadConfigU64(
+        static_cast<uint32_t>(BlkConfigOffset::kCapacity));
   }
 
   /**
@@ -668,8 +739,8 @@ class VirtioBlk {
    * @return 成功返回 void，失败返回错误
    */
   [[nodiscard]] auto do_request(ReqType type, uint64_t sector, uint8_t* data,
-                                uint8_t* status_out, BlkReqHeader* header)
-      -> Result<void> {
+                                uint8_t* status_out,
+                                BlkReqHeader* header) -> Result<void> {
     // 分配 3 个描述符：header -> data -> status
     auto desc0_result = vq_.alloc_desc();
     if (!desc0_result.has_value()) {

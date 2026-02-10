@@ -11,8 +11,8 @@
 
 namespace virtio_driver {
 
-/// virtio 驱动错误类型
-enum class Error : uint32_t {
+/// virtio 驱动错误码
+enum class ErrorCode : uint32_t {
   /// 无效的 MMIO 魔数
   kInvalidMagic = 1,
   /// 无效的版本号
@@ -43,6 +43,70 @@ enum class Error : uint32_t {
   kNotSupported,
   /// 无效的参数
   kInvalidArgument,
+};
+
+/**
+ * @brief 获取错误码的描述字符串
+ * @param code 错误码
+ * @return 错误描述字符串
+ */
+constexpr auto GetErrorMessage(ErrorCode code) -> const char* {
+  switch (code) {
+    case ErrorCode::kInvalidMagic:
+      return "Invalid MMIO magic value";
+    case ErrorCode::kInvalidVersion:
+      return "Unsupported virtio version";
+    case ErrorCode::kInvalidDeviceId:
+      return "Invalid device ID (device does not exist)";
+    case ErrorCode::kFeatureNegotiationFailed:
+      return "Feature negotiation failed";
+    case ErrorCode::kQueueNotAvailable:
+      return "Queue not available (queue_num_max == 0)";
+    case ErrorCode::kQueueAlreadyUsed:
+      return "Queue already used";
+    case ErrorCode::kQueueTooLarge:
+      return "Requested queue size exceeds maximum";
+    case ErrorCode::kOutOfMemory:
+      return "Out of memory";
+    case ErrorCode::kNoFreeDescriptors:
+      return "No free descriptors available";
+    case ErrorCode::kInvalidDescriptor:
+      return "Invalid descriptor index";
+    case ErrorCode::kNoUsedBuffers:
+      return "No used buffers to reclaim";
+    case ErrorCode::kDeviceError:
+      return "Device reported an error";
+    case ErrorCode::kIoError:
+      return "I/O operation failed";
+    case ErrorCode::kNotSupported:
+      return "Operation not supported";
+    case ErrorCode::kInvalidArgument:
+      return "Invalid argument";
+    default:
+      return "Unknown error";
+  }
+}
+
+/**
+ * @brief virtio 驱动错误类型
+ */
+struct Error {
+  ErrorCode code;
+
+  constexpr Error(ErrorCode c) : code(c) {}
+
+  /**
+   * @brief 获取错误描述消息
+   * @return 错误描述字符串
+   */
+  [[nodiscard]] constexpr auto message() const -> const char* {
+    return GetErrorMessage(code);
+  }
+
+  /**
+   * @brief 隐式转换为 ErrorCode，方便比较
+   */
+  constexpr operator ErrorCode() const { return code; }
 };
 
 /// 结果类型

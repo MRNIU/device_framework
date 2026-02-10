@@ -117,20 +117,20 @@ class MmioTransport final : public Transport {
     // @see virtio-v1.2#4.2.2.2
     uint32_t magic = transport.Read<uint32_t>(MmioReg::kMagicValue);
     if (magic != kMmioMagicValue) {
-      return Error::kInvalidMagic;
+      return ErrorCode::kInvalidMagic;
     }
 
     // 验证版本号（必须为 2，即 virtio modern）
     // @see virtio-v1.2#4.2.2.2
     uint32_t version = transport.Read<uint32_t>(MmioReg::kVersion);
     if (version != kMmioVersion) {
-      return Error::kInvalidVersion;
+      return ErrorCode::kInvalidVersion;
     }
 
     // 设备 ID 为 0 表示不存在设备
     uint32_t device_id = transport.Read<uint32_t>(MmioReg::kDeviceId);
     if (device_id == 0) {
-      return Error::kInvalidDeviceId;
+      return ErrorCode::kInvalidDeviceId;
     }
 
     return transport;
@@ -160,19 +160,20 @@ class MmioTransport final : public Transport {
    * @brief 读取 64 位设备特性
    *
    * 需要分两次 32 位读取（低 32 位和高 32 位）
+   * 
+   * @note 该操作需要写入 DeviceFeaturesSel 寄存器来选择读取哪 32 位，
+   *       虽然不改变 C++ 对象状态，但涉及硬件寄存器写入，因此不能声明为 const
    *
    * @return 设备支持的 64 位特性位
    * @see virtio-v1.2#4.2.2.1
    */
-  [[nodiscard]] auto GetDeviceFeatures() const -> uint64_t override {
+  [[nodiscard]] auto GetDeviceFeatures() -> uint64_t override {
     // 选择特性位 [31:0]
-    const_cast<MmioTransport*>(this)->Write<uint32_t>(
-        MmioReg::kDeviceFeaturesSel, 0);
+    Write<uint32_t>(MmioReg::kDeviceFeaturesSel, 0);
     uint64_t lo = Read<uint32_t>(MmioReg::kDeviceFeatures);
 
     // 选择特性位 [63:32]
-    const_cast<MmioTransport*>(this)->Write<uint32_t>(
-        MmioReg::kDeviceFeaturesSel, 1);
+    Write<uint32_t>(MmioReg::kDeviceFeaturesSel, 1);
     uint64_t hi = Read<uint32_t>(MmioReg::kDeviceFeatures);
 
     return (hi << 32) | lo;
@@ -199,15 +200,16 @@ class MmioTransport final : public Transport {
    * @brief 获取队列最大容量
    *
    * 写入 QueueSel 选择队列后读取 QueueNumMax
+   * 
+   * @note 该操作需要写入 QueueSel 寄存器，因此不能声明为 const
    *
    * @param queue_idx 队列索引
    * @return 队列最大大小
    * @see virtio-v1.2#4.2.3.2
    */
-  [[nodiscard]] auto GetQueueNumMax(uint32_t queue_idx) const
+  [[nodiscard]] auto GetQueueNumMax(uint32_t queue_idx)
       -> uint32_t override {
-    const_cast<MmioTransport*>(this)->Write<uint32_t>(MmioReg::kQueueSel,
-                                                      queue_idx);
+    Write<uint32_t>(MmioReg::kQueueSel, queue_idx);
     return Read<uint32_t>(MmioReg::kQueueNumMax);
   }
 
@@ -256,9 +258,8 @@ class MmioTransport final : public Transport {
                     static_cast<uint32_t>(addr >> 32));
   }
 
-  [[nodiscard]] auto GetQueueReady(uint32_t queue_idx) const -> bool override {
-    const_cast<MmioTransport*>(this)->Write<uint32_t>(MmioReg::kQueueSel,
-                                                      queue_idx);
+  [[nodiscard]] auto GetQueueReady(uint32_t queue_idx) -> bool override {
+    Write<uint32_t>(MmioReg::kQueueSel, queue_idx);
     return Read<uint32_t>(MmioReg::kQueueReady) != 0;
   }
 
@@ -319,16 +320,35 @@ class MmioTransport final : public Transport {
   /**
    * @brief 读取配置空间 64 位值
    *
+   * 使用 generation counter 机制保证读取的 64 位配置数据一致性：
+   * 1. 读取 ConfigGeneration
+   * 2. 读取配置数据
+   * 3. 再次读取 ConfigGeneration
+   * 4. 如果两次 generation 不同，说明配置在读取过程中被修改，需要重试
+   *
    * @param offset 相对于配置空间起始的偏移量
-   * @return 64 位配置值
-   * @note 64 位需要分两次读取 32 位以确保原子性
+   * @return 64 位配置值（保证一致性）
+   * @see virtio-v1.2#2.5.1 Driver Requirements: Device Configuration Space
+   * @see virtio-v1.2#4.2.2 MMIO Device Register Layout (ConfigGeneration)
    */
   [[nodiscard]] auto ReadConfigU64(uint32_t offset) const -> uint64_t override {
-    auto ptr =
-        reinterpret_cast<volatile uint32_t*>(base_ + MmioReg::kConfig + offset);
-    uint64_t lo = ptr[0];
-    uint64_t hi = ptr[1];
-    return (hi << 32) | lo;
+    uint32_t gen1;
+    uint32_t gen2;
+    uint64_t value;
+    
+    // 循环直到读取到一致的配置（generation counter 相同）
+    do {
+      gen1 = GetConfigGeneration();
+      
+      auto ptr = reinterpret_cast<volatile uint32_t*>(base_ + MmioReg::kConfig + offset);
+      uint64_t lo = ptr[0];
+      uint64_t hi = ptr[1];
+      value = (hi << 32) | lo;
+      
+      gen2 = GetConfigGeneration();
+    } while (gen1 != gen2);
+    
+    return value;
   }
 
   [[nodiscard]] auto GetConfigGeneration() const -> uint32_t override {

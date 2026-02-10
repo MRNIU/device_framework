@@ -111,12 +111,14 @@ class Transport {
    *
    * 设备特性位表示设备支持的可选功能。
    * 驱动程序应读取此值，与自己支持的特性取交集后写回。
+   * 
+   * @note 部分传输层（如 MMIO）需要写入选择寄存器，因此不能声明为 const
    *
    * @return 设备支持的特性位（64 位掩码）
    * @see virtio-v1.2#2.2 Feature Bits
    * @see virtio-v1.2#6 Reserved Feature Bits
    */
-  [[nodiscard]] virtual auto GetDeviceFeatures() const -> uint64_t = 0;
+  [[nodiscard]] virtual auto GetDeviceFeatures() -> uint64_t = 0;
 
   /**
    * @brief 写入驱动程序接受的 64 位特性位
@@ -135,12 +137,14 @@ class Transport {
    *
    * 设备报告每个 virtqueue 支持的最大 queue_size（描述符数量）。
    * 返回 0 表示该队列索引无效或不可用。
+   * 
+   * @note 部分传输层（如 MMIO）需要写入选择寄存器，因此不能声明为 const
    *
    * @param queue_idx 队列索引（从 0 开始）
    * @return 最大队列大小（queue_num_max），0 表示队列不可用
    * @see virtio-v1.2#2.6 Split Virtqueues
    */
-  [[nodiscard]] virtual auto GetQueueNumMax(uint32_t queue_idx) const
+  [[nodiscard]] virtual auto GetQueueNumMax(uint32_t queue_idx)
       -> uint32_t = 0;
 
   /**
@@ -195,12 +199,14 @@ class Transport {
    * @brief 读取队列就绪状态
    *
    * 检查指定队列是否已配置完成并处于就绪状态。
+   * 
+   * @note 部分传输层（如 MMIO）需要写入选择寄存器，因此不能声明为 const
    *
    * @param queue_idx 队列索引（从 0 开始）
    * @return true 表示队列已就绪，false 表示未就绪
    * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
    */
-  [[nodiscard]] virtual auto GetQueueReady(uint32_t queue_idx) const
+  [[nodiscard]] virtual auto GetQueueReady(uint32_t queue_idx)
       -> bool = 0;
 
   /**
@@ -348,7 +354,7 @@ class Transport {
     if ((status & kFeaturesOk) == 0) {
       // 设备拒绝了特性组合
       SetStatus(status | kFailed);
-      return Error::kFeatureNegotiationFailed;
+      return ErrorCode::kFeatureNegotiationFailed;
     }
 
     return negotiated_features;
@@ -374,10 +380,10 @@ class Transport {
     // 检查队列大小是否有效
     uint32_t max_size = GetQueueNumMax(queue_idx);
     if (max_size == 0) {
-      return Error::kQueueNotAvailable;
+      return ErrorCode::kQueueNotAvailable;
     }
     if (queue_size > max_size) {
-      return Error::kQueueTooLarge;
+      return ErrorCode::kQueueTooLarge;
     }
 
     // 配置队列
@@ -389,7 +395,7 @@ class Transport {
     // 标记队列就绪
     SetQueueReady(queue_idx, true);
 
-    return Result<void>();
+    return {};
   }
 
   /**
@@ -409,10 +415,10 @@ class Transport {
     // 验证设备是否正常激活
     uint32_t new_status = GetStatus();
     if ((new_status & kDeviceNeedsReset) != 0) {
-      return Error::kDeviceError;
+      return ErrorCode::kDeviceError;
     }
 
-    return Result<void>();
+    return {};
   }
 
   /**

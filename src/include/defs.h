@@ -11,7 +11,7 @@ namespace virtio_driver {
 
 /**
  * @brief Virtio 设备 ID 定义
- * @see virtio-v1.2#5
+ * @see virtio-v1.2#5 Device Types
  */
 enum class DeviceId : uint32_t {
   kReserved = 0,
