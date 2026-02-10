@@ -35,4 +35,19 @@ void uart_puts(const char *str);
  */
 void uart_put_hex(uint64_t num);
 
+/**
+ * @brief 初始化 UART（包含中断配置）
+ */
+
+/**
+ * @brief 尝试从 UART 读取一个字符
+ * @return 读取的字符，如果没有可用字符则返回 -1
+ */
+auto uart_getc() -> int;
+
+/**
+ * @brief UART 中断处理函数
+ */
+void uart_handle_interrupt();
+
 #endif  // VIRTIO_DRIVER_TESTS_UART_H_

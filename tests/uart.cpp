@@ -21,8 +21,15 @@
 #define UART_REG_SCR 7  // Scratch Register
 
 /**
+ * @brief Interrupt Enable Register 位定义
+ */
+#define UART_IER_RDA (1 << 0)   // Received Data Available
+#define UART_IER_THRE (1 << 1)  // Transmitter Holding Register Empty
+
+/**
  * @brief Line Status Register 位定义
  */
+#define UART_LSR_DR (1 << 0)    // Data Ready
 #define UART_LSR_THRE (1 << 5)  // Transmitter Holding Register Empty
 
 /**
@@ -85,4 +92,37 @@ void uart_put_hex(uint64_t num) {
 
   buf[18] = '\0';
   uart_puts(buf.data());
+}
+
+void uart_init() {
+  // 使能接收数据中断
+  uart_write_reg(UART_REG_IER, UART_IER_RDA);
+}
+
+auto uart_getc() -> int {
+  // 检查是否有可用数据
+  if ((uart_read_reg(UART_REG_LSR) & UART_LSR_DR) != 0) {
+    return uart_read_reg(UART_REG_RBR);
+  }
+  return -1;
+}
+
+void uart_handle_interrupt() {
+  // 读取中断状态寄存器
+  uint8_t isr = uart_read_reg(UART_REG_ISR);
+
+  // 检查是否是接收数据中断 (ISR bit 0 = 0 表示有中断挂起)
+  if ((isr & 0x01) == 0) {
+    // 处理接收数据中断
+    int c;
+    while ((c = uart_getc()) != -1) {
+      // 回显字符
+      uart_putc(static_cast<char>(c));
+
+      // 可以在这里处理特殊字符
+      if (c == '\r') {
+        uart_putc('\n');
+      }
+    }
+  }
 }

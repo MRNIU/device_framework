@@ -4,7 +4,9 @@
 
 #include <cstdint>
 
+#include "plic.h"
 #include "uart.h"
+#include "virtio_mmio_probe.h"
 
 void test_main(uint32_t hart_id, uint8_t *dtb) {
   uart_puts("\n========================================\n");
@@ -16,11 +18,29 @@ void test_main(uint32_t hart_id, uint8_t *dtb) {
   uart_put_hex(reinterpret_cast<uint64_t>(dtb));
   uart_puts("\n");
 
+  // 初始化 UART（包含中断支持）
+  uart_puts("\n[INIT] Initializing UART...\n");
+  uart_init();
+  uart_puts("[INIT] UART initialized with interrupt support\n");
+
+  // 初始化 PLIC (平台级中断控制器)
+  uart_puts("\n[INIT] Initializing PLIC...\n");
+  plic_init();
+  uart_puts("[INIT] PLIC initialized\n");
+
+  // 使能机器模式全局中断（已在 boot.S 中设置）
+  uart_puts("[INIT] Interrupts enabled\n");
+
+  // 扫描 VirtIO MMIO 设备
+  scan_virtio_devices();
+
   uart_puts("\nTest: Hello from C++!\n");
   uart_puts("Test: UART is working!\n");
+  uart_puts("Test: Interrupt system ready!\n");
 
-  uart_puts("\n[SUCCESS] All tests passed!\n");
+  uart_puts("\n[SUCCESS] All initialization completed!\n");
   uart_puts("========================================\n\n");
+  uart_puts("[INFO] System ready. Try typing on the console...\n");
 }
 
 extern "C" void _start(uint32_t hart_id, uint8_t *dtb) {
