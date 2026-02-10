@@ -219,25 +219,25 @@ class SplitVirtqueue {
       -> Expected<SplitVirtqueue> {
     // 检查参数有效性
     if (mem == nullptr) {
-      return ErrorCode::kInvalidArgument;
+      return std::unexpected(Error{ErrorCode::kInvalidArgument});
     }
 
     // 检查内存对齐，描述符表需要 16 字节对齐
     if (reinterpret_cast<uintptr_t>(mem) % Desc::kAlign != 0) {
-      return ErrorCode::kInvalidArgument;
+      return std::unexpected(Error{ErrorCode::kInvalidArgument});
     }
     if (phys_base % Desc::kAlign != 0) {
-      return ErrorCode::kInvalidArgument;
+      return std::unexpected(Error{ErrorCode::kInvalidArgument});
     }
 
     if (queue_size == 0 || (queue_size & (queue_size - 1)) != 0) {
       // 队列大小必须是 2 的幂
-      return ErrorCode::kInvalidArgument;
+      return std::unexpected(Error{ErrorCode::kInvalidArgument});
     }
 
     size_t required_size = calc_size(queue_size, true);
     if (mem_size < required_size) {
-      return ErrorCode::kOutOfMemory;
+      return std::unexpected(Error{ErrorCode::kOutOfMemory});
     }
 
     SplitVirtqueue vq;
@@ -288,7 +288,7 @@ class SplitVirtqueue {
    */
   [[nodiscard]] auto alloc_desc() -> Expected<uint16_t> {
     if (num_free_ == 0) {
-      return ErrorCode::kNoFreeDescriptors;
+      return std::unexpected(Error{ErrorCode::kNoFreeDescriptors});
     }
 
     uint16_t idx = free_head_;
@@ -361,11 +361,13 @@ class SplitVirtqueue {
    */
   [[nodiscard]] auto pop_used() -> Expected<UsedElem> {
     if (!has_used()) {
-      return ErrorCode::kNoUsedBuffers;
+      return std::unexpected(Error{ErrorCode::kNoUsedBuffers});
     }
 
     uint16_t idx = last_used_idx_ % queue_size_;
-    UsedElem elem = used_->ring[idx];
+    UsedElem elem;
+    elem.id = used_->ring[idx].id;
+    elem.len = used_->ring[idx].len;
 
     ++last_used_idx_;
 

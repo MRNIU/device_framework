@@ -354,7 +354,7 @@ class Transport : public Logger<LogFunc> {
     if ((status & kFeaturesOk) == 0) {
       // 设备拒绝了特性组合
       SetStatus(status | kFailed);
-      return ErrorCode::kFeatureNegotiationFailed;
+      return std::unexpected(Error{ErrorCode::kFeatureNegotiationFailed});
     }
 
     return negotiated_features;
@@ -380,10 +380,10 @@ class Transport : public Logger<LogFunc> {
     // 检查队列大小是否有效
     uint32_t max_size = GetQueueNumMax(queue_idx);
     if (max_size == 0) {
-      return ErrorCode::kQueueNotAvailable;
+      return std::unexpected(Error{ErrorCode::kQueueNotAvailable});
     }
     if (queue_size > max_size) {
-      return ErrorCode::kQueueTooLarge;
+      return std::unexpected(Error{ErrorCode::kQueueTooLarge});
     }
 
     // 配置队列
@@ -415,7 +415,7 @@ class Transport : public Logger<LogFunc> {
     // 验证设备是否正常激活
     uint32_t new_status = GetStatus();
     if ((new_status & kDeviceNeedsReset) != 0) {
-      return ErrorCode::kDeviceError;
+      return std::unexpected(Error{ErrorCode::kDeviceError});
     }
 
     return {};

@@ -269,7 +269,7 @@ class BlkRequest {
    */
   [[nodiscard]] auto submit() -> Expected<void> {
     if (blk_ == nullptr) {
-      return ErrorCode::kInvalidArgument;
+      return std::unexpected(Error{ErrorCode::kInvalidArgument});
     }
 
     auto type = static_cast<ReqType>(header_.type);

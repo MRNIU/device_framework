@@ -93,7 +93,7 @@ constexpr auto GetErrorMessage(ErrorCode code) -> const char* {
 struct Error {
   ErrorCode code;
 
-  explicit constexpr Error(ErrorCode c) : code(c) {}
+  constexpr Error(ErrorCode c) : code(c) {}
 
   /**
    * @brief 获取错误描述消息

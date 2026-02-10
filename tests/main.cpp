@@ -6,6 +6,7 @@
 
 #include "plic.h"
 #include "uart.h"
+#include "virtio_blk_test.h"
 #include "virtio_mmio_probe.h"
 
 void test_main(uint32_t hart_id, uint8_t *dtb) {
@@ -40,6 +41,10 @@ void test_main(uint32_t hart_id, uint8_t *dtb) {
 
   uart_puts("\n[SUCCESS] All initialization completed!\n");
   uart_puts("========================================\n\n");
+
+  // 测试 VirtIO 块设备
+  test_virtio_blk();
+
   uart_puts("[INFO] System ready. Try typing on the console...\n");
 }
 

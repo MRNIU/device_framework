@@ -477,9 +477,9 @@ class VirtioBlk {
                         Transport::kFeaturesOk);
 
     // 6. 验证 FEATURES_OK
-    if ((transport.GetStatus() & Transport::kFeaturesOk) == 0) {
-      transport.SetStatus(Transport::kFailed);
-      return ErrorCode::kFeatureNegotiationFailed;
+    if ((transport.GetStatus() & TransportImpl::kFeaturesOk) == 0) {
+      transport.SetStatus(TransportImpl::kFailed);
+      return std::unexpected(Error{ErrorCode::kFeatureNegotiationFailed});
     }
 
     // 7. 配置 virtqueue 0（块设备仅使用一个队列）
@@ -746,14 +746,14 @@ class VirtioBlk {
     // 分配 3 个描述符：header -> data -> status
     auto desc0_result = vq_.alloc_desc();
     if (!desc0_result.has_value()) {
-      return desc0_result.error();
+      return std::unexpected(desc0_result.error());
     }
     uint16_t desc0 = desc0_result.value();
 
     auto desc1_result = vq_.alloc_desc();
     if (!desc1_result.has_value()) {
       vq_.free_desc(desc0);
-      return desc1_result.error();
+      return std::unexpected(desc1_result.error());
     }
     uint16_t desc1 = desc1_result.value();
 
@@ -761,7 +761,7 @@ class VirtioBlk {
     if (!desc2_result.has_value()) {
       vq_.free_desc(desc0);
       vq_.free_desc(desc1);
-      return desc2_result.error();
+      return std::unexpected(desc2_result.error());
     }
     uint16_t desc2 = desc2_result.value();
 
@@ -815,7 +815,7 @@ class VirtioBlk {
   }
 
   /// 传输层引用
-  Transport& transport_;
+  TransportImpl& transport_;
   /// Virtqueue 引用
   SplitVirtqueue& vq_;
   /// 平台操作接口引用
