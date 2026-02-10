@@ -93,7 +93,7 @@ constexpr auto GetErrorMessage(ErrorCode code) -> const char* {
 struct Error {
   ErrorCode code;
 
-  constexpr Error(ErrorCode c) : code(c) {}
+  explicit constexpr Error(ErrorCode c) : code(c) {}
 
   /**
    * @brief 获取错误描述消息
@@ -106,12 +106,12 @@ struct Error {
   /**
    * @brief 隐式转换为 ErrorCode，方便比较
    */
-  constexpr operator ErrorCode() const { return code; }
+  explicit constexpr operator ErrorCode() const { return code; }
 };
 
-/// 结果类型
+/// std::expected 别名模板
 template <typename T>
-using Result = std::expected<T, Error>;
+using Expected = std::expected<T, Error>;
 
 }  // namespace virtio_driver
 

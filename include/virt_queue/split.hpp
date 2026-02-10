@@ -22,9 +22,10 @@ namespace virtio_driver {
  * [Available Ring]    aligned to 2
  * [Used Ring]         aligned to 4
  * ```
- * 
+ *
  * @warning 非线程安全：此类的所有方法均不是线程安全的。
- *          如果多个线程/核需要访问同一个 virtqueue，调用者必须使用外部同步机制（如自旋锁或互斥锁）。
+ *          如果多个线程/核需要访问同一个
+ * virtqueue，调用者必须使用外部同步机制（如自旋锁或互斥锁）。
  * @warning 单生产者-单消费者：描述符分配和提交应由同一线程执行，
  *                          已用缓冲区回收应由另一线程执行（通常在中断处理程序中）。
  *
@@ -215,12 +216,12 @@ class SplitVirtqueue {
    */
   [[nodiscard]] static auto create(void* mem, size_t mem_size,
                                    uint16_t queue_size, uint64_t phys_base)
-      -> Result<SplitVirtqueue> {
+      -> Expected<SplitVirtqueue> {
     // 检查参数有效性
     if (mem == nullptr) {
       return ErrorCode::kInvalidArgument;
     }
-    
+
     // 检查内存对齐，描述符表需要 16 字节对齐
     if (reinterpret_cast<uintptr_t>(mem) % Desc::kAlign != 0) {
       return ErrorCode::kInvalidArgument;
@@ -228,7 +229,7 @@ class SplitVirtqueue {
     if (phys_base % Desc::kAlign != 0) {
       return ErrorCode::kInvalidArgument;
     }
-    
+
     if (queue_size == 0 || (queue_size & (queue_size - 1)) != 0) {
       // 队列大小必须是 2 的幂
       return ErrorCode::kInvalidArgument;
@@ -279,12 +280,13 @@ class SplitVirtqueue {
 
   /**
    * @brief 从空闲链表分配一个描述符
-   * 
+   *
    * @warning 非线程安全：多个线程同时调用可能导致竞态条件
-   * 
-   * @return 成功返回描述符索引；空闲链表为空时返回 ErrorCode::kNoFreeDescriptors
+   *
+   * @return 成功返回描述符索引；空闲链表为空时返回
+   * ErrorCode::kNoFreeDescriptors
    */
-  [[nodiscard]] auto alloc_desc() -> Result<uint16_t> {
+  [[nodiscard]] auto alloc_desc() -> Expected<uint16_t> {
     if (num_free_ == 0) {
       return ErrorCode::kNoFreeDescriptors;
     }
@@ -298,9 +300,9 @@ class SplitVirtqueue {
 
   /**
    * @brief 归还描述符到空闲链表
-   * 
+   *
    * @warning 非线程安全：多个线程同时调用可能导致竞态条件
-   * 
+   *
    * @param idx 描述符索引
    */
   auto free_desc(uint16_t idx) -> void {
@@ -321,15 +323,16 @@ class SplitVirtqueue {
 
   /**
    * @brief 将描述符链提交到 Available Ring
-   * 
+   *
    * @warning 非线程安全：多个线程同时调用可能导致竞态条件
-   * 
+   *
    * @param head 链头描述符索引
-   * 
+   *
    * @note 调用者必须在调用此函数前确保描述符写入已完成（使用写屏障 wmb）
    * @note 调用者必须在调用此函数后使用内存屏障（mb）确保 idx 更新对设备可见
-   * @note 这样设计是因为 SplitVirtqueue 不保存 PlatformOps 引用，由上层管理内存屏障
-   * 
+   * @note 这样设计是因为 SplitVirtqueue 不保存 PlatformOps
+   * 引用，由上层管理内存屏障
+   *
    * @see virtio-v1.2#2.7.13 Supplying Buffers to The Device
    */
   auto submit(uint16_t head) -> void {
@@ -350,12 +353,13 @@ class SplitVirtqueue {
 
   /**
    * @brief 从 Used Ring 弹出一个已完成的元素
-   * 
+   *
    * @warning 非线程安全：多个线程同时调用可能导致竞态条件
-   * 
-   * @return 成功返回 UsedElem{id, len}；无可用元素时返回 ErrorCode::kNoUsedBuffers
+   *
+   * @return 成功返回 UsedElem{id, len}；无可用元素时返回
+   * ErrorCode::kNoUsedBuffers
    */
-  [[nodiscard]] auto pop_used() -> Result<UsedElem> {
+  [[nodiscard]] auto pop_used() -> Expected<UsedElem> {
     if (!has_used()) {
       return ErrorCode::kNoUsedBuffers;
     }

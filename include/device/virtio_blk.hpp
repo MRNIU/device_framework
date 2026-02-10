@@ -416,6 +416,7 @@ class BlkRequest;
  * @note 当前实现仅支持单队列模式
  * @note 所有 DMA 缓冲区必须位于物理连续内存
  */
+template <class LogFunc = std::nullptr_t>
 class VirtioBlk {
   // BlkRequest 需要访问 do_request()
   friend class BlkRequest;
@@ -444,9 +445,10 @@ class VirtioBlk {
    * @retval Error::kFeatureNegotiationFailed 特性协商失败（设备不支持
    * VERSION_1）
    */
-  [[nodiscard]] static auto create(
-      Transport& transport, SplitVirtqueue& vq, const PlatformOps& platform,
-      uint64_t driver_features = 0) -> Result<VirtioBlk> {
+  [[nodiscard]] static auto create(Transport& transport, SplitVirtqueue& vq,
+                                   const PlatformOps& platform,
+                                   uint64_t driver_features = 0)
+      -> Expected<VirtioBlk> {
     // 1. 重置设备
     transport.Reset();
 
@@ -513,7 +515,7 @@ class VirtioBlk {
    * @note 所有缓冲区在请求完成前不得释放或修改
    */
   [[nodiscard]] auto read(uint64_t sector, uint8_t* data, uint8_t* status_out,
-                          BlkReqHeader* header) -> Result<void> {
+                          BlkReqHeader* header) -> Expected<void> {
     return do_request(ReqType::kIn, sector, data, status_out, header);
   }
 
@@ -535,8 +537,8 @@ class VirtioBlk {
    * @note 所有缓冲区在请求完成前不得释放或修改
    */
   [[nodiscard]] auto write(uint64_t sector, const uint8_t* data,
-                           uint8_t* status_out,
-                           BlkReqHeader* header) -> Result<void> {
+                           uint8_t* status_out, BlkReqHeader* header)
+      -> Expected<void> {
     return do_request(ReqType::kOut, sector, const_cast<uint8_t*>(data),
                       status_out, header);
   }
@@ -739,8 +741,8 @@ class VirtioBlk {
    * @return 成功返回 void，失败返回错误
    */
   [[nodiscard]] auto do_request(ReqType type, uint64_t sector, uint8_t* data,
-                                uint8_t* status_out,
-                                BlkReqHeader* header) -> Result<void> {
+                                uint8_t* status_out, BlkReqHeader* header)
+      -> Expected<void> {
     // 分配 3 个描述符：header -> data -> status
     auto desc0_result = vq_.alloc_desc();
     if (!desc0_result.has_value()) {

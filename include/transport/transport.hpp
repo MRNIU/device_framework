@@ -5,6 +5,7 @@
 #ifndef VIRTIO_DRIVER_SRC_INCLUDE_TRANSPORT_TRANSPORT_HPP_
 #define VIRTIO_DRIVER_SRC_INCLUDE_TRANSPORT_TRANSPORT_HPP_
 
+#include "defs.h"
 #include "expected.hpp"
 
 namespace virtio_driver {
@@ -26,7 +27,8 @@ namespace virtio_driver {
  * @note 所有子类必须实现所有纯虚函数
  * @see virtio-v1.2#4 Virtio Transport Options
  */
-class Transport {
+template <class LogFunc = std::nullptr_t>
+class Transport : public Logger<LogFunc> {
  public:
   /**
    * @brief 设备状态位定义
@@ -111,7 +113,7 @@ class Transport {
    *
    * 设备特性位表示设备支持的可选功能。
    * 驱动程序应读取此值，与自己支持的特性取交集后写回。
-   * 
+   *
    * @note 部分传输层（如 MMIO）需要写入选择寄存器，因此不能声明为 const
    *
    * @return 设备支持的特性位（64 位掩码）
@@ -137,15 +139,14 @@ class Transport {
    *
    * 设备报告每个 virtqueue 支持的最大 queue_size（描述符数量）。
    * 返回 0 表示该队列索引无效或不可用。
-   * 
+   *
    * @note 部分传输层（如 MMIO）需要写入选择寄存器，因此不能声明为 const
    *
    * @param queue_idx 队列索引（从 0 开始）
    * @return 最大队列大小（queue_num_max），0 表示队列不可用
    * @see virtio-v1.2#2.6 Split Virtqueues
    */
-  [[nodiscard]] virtual auto GetQueueNumMax(uint32_t queue_idx)
-      -> uint32_t = 0;
+  [[nodiscard]] virtual auto GetQueueNumMax(uint32_t queue_idx) -> uint32_t = 0;
 
   /**
    * @brief 设置指定队列的队列大小
@@ -199,15 +200,14 @@ class Transport {
    * @brief 读取队列就绪状态
    *
    * 检查指定队列是否已配置完成并处于就绪状态。
-   * 
+   *
    * @note 部分传输层（如 MMIO）需要写入选择寄存器，因此不能声明为 const
    *
    * @param queue_idx 队列索引（从 0 开始）
    * @return true 表示队列已就绪，false 表示未就绪
    * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
    */
-  [[nodiscard]] virtual auto GetQueueReady(uint32_t queue_idx)
-      -> bool = 0;
+  [[nodiscard]] virtual auto GetQueueReady(uint32_t queue_idx) -> bool = 0;
 
   /**
    * @brief 设置队列就绪状态
@@ -331,7 +331,7 @@ class Transport {
    * @note 初始化成功后，调用者还需配置队列并调用 Activate() 完成激活
    * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
    */
-  [[nodiscard]] auto Init(uint64_t driver_features) -> Result<uint64_t> {
+  [[nodiscard]] auto Init(uint64_t driver_features) -> Expected<uint64_t> {
     // 重置设备
     Reset();
 
@@ -376,7 +376,7 @@ class Transport {
    */
   [[nodiscard]] auto SetupQueue(uint32_t queue_idx, uint64_t desc_phys,
                                 uint64_t avail_phys, uint64_t used_phys,
-                                uint32_t queue_size) -> Result<void> {
+                                uint32_t queue_size) -> Expected<void> {
     // 检查队列大小是否有效
     uint32_t max_size = GetQueueNumMax(queue_idx);
     if (max_size == 0) {
@@ -408,7 +408,7 @@ class Transport {
    * @return 成功或失败
    * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
    */
-  [[nodiscard]] auto Activate() -> Result<void> {
+  [[nodiscard]] auto Activate() -> Expected<void> {
     uint32_t current_status = GetStatus();
     SetStatus(current_status | kDriverOk);
 

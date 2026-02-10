@@ -4,11 +4,14 @@ CMAKE_MINIMUM_REQUIRED (VERSION 3.27 FATAL_ERROR)
 
 PROJECT (virtio_driver)
 
-if (${PROJECT_SOURCE_DIR} STREQUAL ${PROJECT_BINARY_DIR})
-    message(
-            FATAL_ERROR
+IF(${PROJECT_SOURCE_DIR} STREQUAL ${PROJECT_BINARY_DIR})
+    MESSAGE (
+        FATAL_ERROR
             "In-source builds not allowed. Please make a new directory (called a build directory) and run CMake from there."
     )
-endif ()
+ENDIF()
 
-add_subdirectory(${PROJECT_SOURCE_DIR}/src)
+ADD_LIBRARY (${PROJECT_NAME} INTERFACE)
+TARGET_INCLUDE_DIRECTORIES (${PROJECT_NAME} INTERFACE include)
+
+ADD_SUBDIRECTORY (${PROJECT_SOURCE_DIR}/tests)

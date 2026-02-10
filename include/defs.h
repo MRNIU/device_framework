@@ -93,6 +93,22 @@ enum class ReservedFeature : uint64_t {
   kRingReset = 1ULL << 40,
 };
 
+template <class LogFunc = std::nullptr_t>
+class Logger {
+ public:
+  /**
+   * @brief 记录日志信息
+   * @param  format          格式化字符串
+   * @param  args            可变参数
+   */
+  template <typename... Args>
+  void Log(const char* format, Args&&... args) const {
+    if constexpr (!std::is_same_v<LogFunc, std::nullptr_t>) {
+      LogFunc{}(format, args...);
+    }
+  }
+};
+
 }  // namespace virtio_driver
 
 #endif /* VIRTIO_DEFS_H */

@@ -67,11 +67,11 @@ class BlkRequest {
    * @param blk 块设备实例
    * @param sector 起始扇区号（以 512 字节为单位）
    * @param data 数据缓冲区（至少 512 字节，必须在请求完成前保持有效）
-   * @return Result<BlkRequest> 成功返回请求对象，失败返回错误
+   * @return Expected<BlkRequest> 成功返回请求对象，失败返回错误
    * @retval ErrorCode::kNoDescriptors virtqueue 描述符不足
    */
-  [[nodiscard]] static auto read(VirtioBlk& blk, uint64_t sector,
-                                  uint8_t* data) -> Result<BlkRequest> {
+  [[nodiscard]] static auto read(VirtioBlk& blk, uint64_t sector, uint8_t* data)
+      -> Expected<BlkRequest> {
     BlkRequest req(blk, ReqType::kIn, sector, data);
     auto result = req.submit();
     if (!result.has_value()) {
@@ -86,11 +86,11 @@ class BlkRequest {
    * @param blk 块设备实例
    * @param sector 起始扇区号（以 512 字节为单位）
    * @param data 数据缓冲区（至少 512 字节，必须在请求完成前保持有效）
-   * @return Result<BlkRequest> 成功返回请求对象，失败返回错误
+   * @return Expected<BlkRequest> 成功返回请求对象，失败返回错误
    * @retval ErrorCode::kNoDescriptors virtqueue 描述符不足
    */
   [[nodiscard]] static auto write(VirtioBlk& blk, uint64_t sector,
-                                   const uint8_t* data) -> Result<BlkRequest> {
+                                  const uint8_t* data) -> Expected<BlkRequest> {
     BlkRequest req(blk, ReqType::kOut, sector, const_cast<uint8_t*>(data));
     auto result = req.submit();
     if (!result.has_value()) {
@@ -103,12 +103,12 @@ class BlkRequest {
    * @brief 创建缓存刷新请求
    *
    * @param blk 块设备实例
-   * @return Result<BlkRequest> 成功返回请求对象，失败返回错误
+   * @return Expected<BlkRequest> 成功返回请求对象，失败返回错误
    * @retval ErrorCode::kNoDescriptors virtqueue 描述符不足
    *
    * @note 需要设备协商 VIRTIO_BLK_F_FLUSH 特性
    */
-  [[nodiscard]] static auto flush(VirtioBlk& blk) -> Result<BlkRequest> {
+  [[nodiscard]] static auto flush(VirtioBlk& blk) -> Expected<BlkRequest> {
     // Flush 不需要数据缓冲区，但为了兼容 do_request，分配临时缓冲区
     BlkRequest req(blk, ReqType::kFlush, 0, nullptr);
     // 分配内部数据缓冲区（虽然 Flush 不使用，但 do_request 需要）
@@ -265,9 +265,9 @@ class BlkRequest {
   /**
    * @brief 提交请求到设备
    *
-   * @return Result<void> 成功返回空，失败返回错误
+   * @return Expected<void> 成功返回空，失败返回错误
    */
-  [[nodiscard]] auto submit() -> Result<void> {
+  [[nodiscard]] auto submit() -> Expected<void> {
     if (blk_ == nullptr) {
       return ErrorCode::kInvalidArgument;
     }
@@ -276,8 +276,8 @@ class BlkRequest {
 
     // 直接调用底层 do_request 方法（VirtioBlk 是友元）
     // 对于 flush 等不需要数据的请求，data_ 可以为 nullptr
-    auto result = blk_->do_request(type, header_.sector, data_,
-                                   &status_byte_, &header_);
+    auto result =
+        blk_->do_request(type, header_.sector, data_, &status_byte_, &header_);
 
     if (result.has_value()) {
       submitted_ = true;

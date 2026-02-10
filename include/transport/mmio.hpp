@@ -5,6 +5,7 @@
 #ifndef VIRTIO_DRIVER_SRC_INCLUDE_TRANSPORT_MMIO_HPP_
 #define VIRTIO_DRIVER_SRC_INCLUDE_TRANSPORT_MMIO_HPP_
 
+#include "expected.hpp"
 #include "transport.hpp"
 
 namespace virtio_driver {
@@ -52,7 +53,8 @@ static constexpr uint32_t kMmioVersion = 0x02;
  *
  * @see virtio-v1.2#4.2 Virtio Over MMIO
  */
-class MmioTransport final : public Transport {
+template <class LogFunc = std::nullptr_t>
+class MmioTransport final : public Transport<LogFunc> {
  public:
   /**
    * @brief MMIO 寄存器偏移量
@@ -103,37 +105,34 @@ class MmioTransport final : public Transport {
   };
 
   /**
-   * @brief 根据 MMIO 寄存器基地址创建传输层实例
+   * @brief 构造函数
    *
-   * 会验证魔数和版本号
-   * @param base MMIO 寄存器基地址（虚拟地址，需已映射）
-   * @return 成功返回 MmioTransport 实例，失败返回错误
+   * @param base MMIO 寄存器基地址
    */
-  [[nodiscard]] static auto create(uintptr_t base_addr)
-      -> Result<MmioTransport> {
-    MmioTransport transport(base_addr);
-
+  explicit MmioTransport(uint64_t base) : base_(base) {
     // 验证魔数 0x74726976 ("virt")
     // @see virtio-v1.2#4.2.2.2
-    uint32_t magic = transport.Read<uint32_t>(MmioReg::kMagicValue);
+    uint32_t magic = Read<uint32_t>(MmioReg::kMagicValue);
     if (magic != kMmioMagicValue) {
-      return ErrorCode::kInvalidMagic;
+      Log("MMIO magic value mismatch: expected 0x%08x, got 0x%08x",
+          kMmioMagicValue, magic);
+      return;
     }
 
     // 验证版本号（必须为 2，即 virtio modern）
     // @see virtio-v1.2#4.2.2.2
-    uint32_t version = transport.Read<uint32_t>(MmioReg::kVersion);
+    uint32_t version = Read<uint32_t>(MmioReg::kVersion);
     if (version != kMmioVersion) {
-      return ErrorCode::kInvalidVersion;
+      Log("MMIO version mismatch: expected %u, got %u", kMmioVersion, version);
+      return;
     }
 
     // 设备 ID 为 0 表示不存在设备
-    uint32_t device_id = transport.Read<uint32_t>(MmioReg::kDeviceId);
+    uint32_t device_id = Read<uint32_t>(MmioReg::kDeviceId);
     if (device_id == 0) {
-      return ErrorCode::kInvalidDeviceId;
+      Log("MMIO device ID is 0, no device found");
+      return;
     }
-
-    return transport;
   }
 
   // ========================================================================
@@ -160,7 +159,7 @@ class MmioTransport final : public Transport {
    * @brief 读取 64 位设备特性
    *
    * 需要分两次 32 位读取（低 32 位和高 32 位）
-   * 
+   *
    * @note 该操作需要写入 DeviceFeaturesSel 寄存器来选择读取哪 32 位，
    *       虽然不改变 C++ 对象状态，但涉及硬件寄存器写入，因此不能声明为 const
    *
@@ -200,15 +199,14 @@ class MmioTransport final : public Transport {
    * @brief 获取队列最大容量
    *
    * 写入 QueueSel 选择队列后读取 QueueNumMax
-   * 
+   *
    * @note 该操作需要写入 QueueSel 寄存器，因此不能声明为 const
    *
    * @param queue_idx 队列索引
    * @return 队列最大大小
    * @see virtio-v1.2#4.2.3.2
    */
-  [[nodiscard]] auto GetQueueNumMax(uint32_t queue_idx)
-      -> uint32_t override {
+  [[nodiscard]] auto GetQueueNumMax(uint32_t queue_idx) -> uint32_t override {
     Write<uint32_t>(MmioReg::kQueueSel, queue_idx);
     return Read<uint32_t>(MmioReg::kQueueNumMax);
   }
@@ -335,19 +333,20 @@ class MmioTransport final : public Transport {
     uint32_t gen1;
     uint32_t gen2;
     uint64_t value;
-    
+
     // 循环直到读取到一致的配置（generation counter 相同）
     do {
       gen1 = GetConfigGeneration();
-      
-      auto ptr = reinterpret_cast<volatile uint32_t*>(base_ + MmioReg::kConfig + offset);
+
+      auto ptr = reinterpret_cast<volatile uint32_t*>(base_ + MmioReg::kConfig +
+                                                      offset);
       uint64_t lo = ptr[0];
       uint64_t hi = ptr[1];
       value = (hi << 32) | lo;
-      
+
       gen2 = GetConfigGeneration();
     } while (gen1 != gen2);
-    
+
     return value;
   }
 
@@ -356,16 +355,9 @@ class MmioTransport final : public Transport {
   }
 
   /// 获取 MMIO 基地址
-  [[nodiscard]] auto base() const -> uintptr_t { return base_; }
+  [[nodiscard]] auto base() const -> uint64_t { return base_; }
 
  private:
-  /**
-   * @brief 构造函数
-   *
-   * @param base MMIO 寄存器基地址
-   */
-  explicit MmioTransport(uintptr_t base) : base_(base) {}
-
   /**
    * @brief 从 MMIO 寄存器读取指定类型的值
    *
@@ -394,7 +386,7 @@ class MmioTransport final : public Transport {
   }
 
   /// MMIO 寄存器基地址（虚拟地址）
-  uintptr_t base_;
+  uint64_t base_;
 };
 
 }  // namespace virtio_driver
