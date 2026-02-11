@@ -194,7 +194,7 @@ void test_virtio_blk() {
     s_blk_ptr = &blk;
     g_virtio_irq_handlers[dev_idx] = []() {
       if (s_blk_ptr != nullptr) {
-        s_blk_ptr->AckInterrupt();
+        s_blk_ptr->HandleInterrupt();
       }
     };
     EXPECT_TRUE(g_virtio_irq_handlers[dev_idx] != nullptr,

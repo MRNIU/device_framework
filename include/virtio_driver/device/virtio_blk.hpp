@@ -536,22 +536,46 @@ class VirtioBlk : public Logger<LogFunc> {
   }
 
   /**
-   * @brief 确认设备中断
+   * @brief 设备中断处理入口
    *
-   * 读取中断状态寄存器并写入中断确认寄存器，清除待处理的中断。
-   * 通常在中断处理程序中调用。
+   * 确认设备中断并通知等待中的同步请求。用户应将此方法注册到
+   * 对应 VirtIO 设备的硬件中断处理程序中（如通过 PLIC 注册的 ISR）。
    *
+   * @note 此方法可在中断上下文中安全调用（ISR-safe）
+   * @note 使用原子操作保证多核环境下的正确性
    * @see virtio-v1.2#2.3 Notifications
    */
-  auto AckInterrupt() -> void {
+  auto HandleInterrupt() -> void {
     uint32_t status = transport_.GetInterruptStatus();
     transport_.AckInterrupt(status);
+    request_completed_.store(true, std::memory_order_release);
   }
 
   /// @name 移动/拷贝控制
   /// @{
-  VirtioBlk(VirtioBlk&&) noexcept = default;
-  auto operator=(VirtioBlk&&) noexcept -> VirtioBlk& = default;
+  VirtioBlk(VirtioBlk&& other) noexcept
+      : transport_(std::move(other.transport_)),
+        vq_(std::move(other.vq_)),
+        platform_(other.platform_),
+        negotiated_features_(other.negotiated_features_),
+        req_header_(other.req_header_),
+        status_(other.status_),
+        request_completed_(
+            other.request_completed_.load(std::memory_order_relaxed)) {}
+  auto operator=(VirtioBlk&& other) noexcept -> VirtioBlk& {
+    if (this != &other) {
+      transport_ = std::move(other.transport_);
+      vq_ = std::move(other.vq_);
+      platform_ = other.platform_;
+      negotiated_features_ = other.negotiated_features_;
+      req_header_ = other.req_header_;
+      status_ = other.status_;
+      request_completed_.store(
+          other.request_completed_.load(std::memory_order_relaxed),
+          std::memory_order_relaxed);
+    }
+    return *this;
+  }
   VirtioBlk(const VirtioBlk&) = delete;
   auto operator=(const VirtioBlk&) -> VirtioBlk& = delete;
   ~VirtioBlk() = default;
@@ -570,7 +594,8 @@ class VirtioBlk : public Logger<LogFunc> {
         platform_(platform),
         negotiated_features_(features),
         req_header_{},
-        status_(0) {}
+        status_(0),
+        request_completed_(false) {}
 
   /**
    * @brief 同步请求的内部实现
@@ -578,8 +603,8 @@ class VirtioBlk : public Logger<LogFunc> {
    * 完成从请求提交到结果返回的完整流程：
    * 1. 分配描述符并组成描述符链
    * 2. 提交到 Available Ring 并通知设备
-   * 3. 轮询等待设备完成
-   * 4. 回收描述符并确认中断
+   * 3. 自旋等待中断驱动的完成通知（HandleInterrupt 设置原子标志）
+   * 4. 回收描述符
    * 5. 检查设备返回的状态
    *
    * @param type 请求类型（kIn/kOut）
@@ -647,8 +672,11 @@ class VirtioBlk : public Logger<LogFunc> {
     d2->flags = SplitVirtqueue::kDescFWrite;
     d2->next = 0;
 
-    // 内存屏障：确保描述符已写入内存
-    std::atomic_thread_fence(std::memory_order_release);
+    // 重置完成标志（在提交请求之前）
+    request_completed_.store(false, std::memory_order_relaxed);
+
+    // 内存屏障：确保完成标志重置 + 描述符写入对所有核心/设备可见
+    std::atomic_thread_fence(std::memory_order_seq_cst);
 
     // 提交到 Available Ring
     vq_.Submit(desc0);
@@ -659,11 +687,13 @@ class VirtioBlk : public Logger<LogFunc> {
     // 通知设备
     transport_.NotifyQueue(0);
 
-    // 轮询等待设备完成
-    static constexpr uint32_t kMaxPollIterations = 10000000;
-    uint32_t poll_count = 0;
-    while (!vq_.HasUsed() && poll_count < kMaxPollIterations) {
-      ++poll_count;
+    // 等待中断驱动的完成通知
+    // HandleInterrupt() 在硬件中断处理程序中被调用后设置 request_completed_
+    static constexpr uint32_t kMaxSpinIterations = 100000000;
+    uint32_t spin_count = 0;
+    while (!request_completed_.load(std::memory_order_acquire) &&
+           spin_count < kMaxSpinIterations) {
+      ++spin_count;
     }
 
     if (!vq_.HasUsed()) {
@@ -675,9 +705,6 @@ class VirtioBlk : public Logger<LogFunc> {
 
     // 处理完成的请求
     ProcessUsed();
-
-    // 确认中断
-    AckInterrupt();
 
     // 检查设备状态
     if (status_ != static_cast<uint8_t>(BlkStatus::kOk)) {
@@ -736,7 +763,12 @@ class VirtioBlk : public Logger<LogFunc> {
   alignas(16) BlkReqHeader req_header_;
   /// 内部状态字节（DMA 可访问）
   alignas(16) uint8_t status_;
+  /// 请求完成标志（由 HandleInterrupt 在中断上下文中设置，多核安全）
+  std::atomic<bool> request_completed_;
 };
+
+static_assert(std::atomic<bool>::is_always_lock_free,
+              "atomic<bool> must be lock-free for ISR safety");
 
 }  // namespace virtio_driver::blk
 
