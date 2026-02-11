@@ -253,8 +253,8 @@ class SplitVirtqueue {
   SplitVirtqueue(void* dma_buf, uint64_t phys_base, uint16_t queue_size,
                  bool event_idx = true, size_t used_align = Used::kAlign)
       : queue_size_(queue_size),
-        event_idx_enabled_(event_idx),
-        phys_base_(phys_base) {
+        phys_base_(phys_base),
+        event_idx_enabled_(event_idx) {
     if (dma_buf == nullptr || !IsPowerOfTwo(queue_size)) {
       return;
     }
