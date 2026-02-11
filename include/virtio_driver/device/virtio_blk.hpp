@@ -582,7 +582,6 @@ class VirtioBlk {
       transport_.AckInterrupt(status);
     }
     stats_.interrupts_handled++;
-    stats_.interrupts_handled++;
     request_completed_ = true;
     Traits::Wmb();
 

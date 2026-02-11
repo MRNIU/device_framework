@@ -63,6 +63,9 @@ alignas(4096) uint8_t g_vq_dma_buf[32768];
 /// 数据缓冲区（一个扇区大小）
 alignas(16) uint8_t g_data_buf[virtio_driver::blk::kSectorSize];
 
+/// 多扇区数据缓冲区（4 扇区，用于 SG 测试）
+alignas(16) uint8_t g_multi_sector_buf[4 * virtio_driver::blk::kSectorSize];
+
 /**
  * @brief 扫描 MMIO 设备，找到块设备的基地址
  * @return 块设备的 MMIO 基地址，未找到返回 0
@@ -399,6 +402,287 @@ void test_virtio_blk() {
                 "Event Index: bytes_transferred > 0");
     EXPECT_TRUE(stats_after.interrupts_handled > 0,
                 "Event Index: interrupts_handled > 0");
+  }
+
+  // === 测试 14: SG 多扇区写入（Scatter-Gather，4 个连续扇区一次提交） ===
+  {
+    LOG("Testing SG multi-sector write (4 contiguous sectors 20-23)...");
+    constexpr size_t kSgSectors = 4;
+    constexpr uint64_t kSgBaseSector = 20;
+
+    // 填充 4 扇区各不相同的数据模式
+    for (size_t s = 0; s < kSgSectors; ++s) {
+      auto pattern = static_cast<uint8_t>(0xB0 + s);
+      auto* sector_buf =
+          g_multi_sector_buf + s * virtio_driver::blk::kSectorSize;
+      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+        sector_buf[i] = static_cast<uint8_t>(pattern + (i & 0xFF));
+      }
+    }
+
+    // 构建 4 个 IoVec，每个指向一个扇区缓冲区
+    virtio_driver::IoVec write_iovs[kSgSectors];
+    for (size_t s = 0; s < kSgSectors; ++s) {
+      write_iovs[s] = {
+          RiscvTraits::VirtToPhys(g_multi_sector_buf +
+                                  s * virtio_driver::blk::kSectorSize),
+          virtio_driver::blk::kSectorSize};
+    }
+
+    // 使用 EnqueueWrite + Kick 的异步方式提交 SG 写请求
+    auto enq_w = blk.EnqueueWrite(0, kSgBaseSector, write_iovs, kSgSectors);
+    EXPECT_TRUE(enq_w.has_value(), "SG write enqueue succeeds");
+
+    if (enq_w.has_value()) {
+      blk.Kick(0);
+
+      // 轮询 HandleInterrupt 直到回调触发
+      bool sg_write_done = false;
+      virtio_driver::ErrorCode sg_write_ec = virtio_driver::ErrorCode::kTimeout;
+      for (uint32_t spin = 0; spin < 100000000 && !sg_write_done; ++spin) {
+        RiscvTraits::Rmb();
+        blk.HandleInterrupt(
+            [&sg_write_done, &sg_write_ec](void* /*token*/,
+                                           virtio_driver::ErrorCode status) {
+              sg_write_done = true;
+              sg_write_ec = status;
+            });
+      }
+      EXPECT_TRUE(sg_write_done, "SG write completed via callback");
+      EXPECT_EQ(static_cast<uint32_t>(virtio_driver::ErrorCode::kSuccess),
+                static_cast<uint32_t>(sg_write_ec),
+                "SG write status is kSuccess");
+    }
+  }
+
+  // === 测试 15: SG 多扇区读取（Scatter-Gather，4 个连续扇区一次读取并验证）
+  // ===
+  {
+    LOG("Testing SG multi-sector read (4 contiguous sectors 20-23)...");
+    constexpr size_t kSgSectors = 4;
+    constexpr uint64_t kSgBaseSector = 20;
+
+    // 清零多扇区缓冲区
+    memzero(g_multi_sector_buf, sizeof(g_multi_sector_buf));
+
+    // 构建 4 个 IoVec 用于读取
+    virtio_driver::IoVec read_iovs[kSgSectors];
+    for (size_t s = 0; s < kSgSectors; ++s) {
+      read_iovs[s] = {
+          RiscvTraits::VirtToPhys(g_multi_sector_buf +
+                                  s * virtio_driver::blk::kSectorSize),
+          virtio_driver::blk::kSectorSize};
+    }
+
+    // 使用 EnqueueRead + Kick 的异步方式提交 SG 读请求
+    auto enq_r = blk.EnqueueRead(0, kSgBaseSector, read_iovs, kSgSectors);
+    EXPECT_TRUE(enq_r.has_value(), "SG read enqueue succeeds");
+
+    if (enq_r.has_value()) {
+      blk.Kick(0);
+
+      // 轮询 HandleInterrupt 直到回调触发
+      bool sg_read_done = false;
+      virtio_driver::ErrorCode sg_read_ec = virtio_driver::ErrorCode::kTimeout;
+      for (uint32_t spin = 0; spin < 100000000 && !sg_read_done; ++spin) {
+        RiscvTraits::Rmb();
+        blk.HandleInterrupt(
+            [&sg_read_done, &sg_read_ec](void* /*token*/,
+                                         virtio_driver::ErrorCode status) {
+              sg_read_done = true;
+              sg_read_ec = status;
+            });
+      }
+      EXPECT_TRUE(sg_read_done, "SG read completed via callback");
+      EXPECT_EQ(static_cast<uint32_t>(virtio_driver::ErrorCode::kSuccess),
+                static_cast<uint32_t>(sg_read_ec),
+                "SG read status is kSuccess");
+
+      // 验证读回的数据与之前写入的数据一致
+      if (sg_read_done && sg_read_ec == virtio_driver::ErrorCode::kSuccess) {
+        bool sg_data_match = true;
+        for (size_t s = 0; s < kSgSectors && sg_data_match; ++s) {
+          auto pattern = static_cast<uint8_t>(0xB0 + s);
+          auto* sector_buf =
+              g_multi_sector_buf + s * virtio_driver::blk::kSectorSize;
+          for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+            auto expected = static_cast<uint8_t>(pattern + (i & 0xFF));
+            if (sector_buf[i] != expected) {
+              sg_data_match = false;
+              LOG_HEX("  SG data mismatch at sector offset", s);
+              LOG_HEX("  byte offset", i);
+              LOG_HEX("  expected", expected);
+              LOG_HEX("  got", sector_buf[i]);
+              break;
+            }
+          }
+        }
+        EXPECT_TRUE(sg_data_match, "SG read data matches SG write data");
+      }
+    }
+  }
+
+  // === 测试 16: 异步批量提交（多个 Enqueue → 单次 Kick → HandleInterrupt
+  // 回调） ===
+  {
+    LOG("Testing async batch submit (3 writes, single Kick, "
+        "HandleInterrupt)...");
+    constexpr size_t kBatchRequests = 3;
+    constexpr uint64_t kBatchBaseSector = 30;
+
+    // 为每个请求准备不同的数据模式
+    struct BatchCtx {
+      uint64_t sector;
+      uint8_t pattern;
+      bool completed;
+      virtio_driver::ErrorCode status;
+    };
+    BatchCtx batch[kBatchRequests];
+    for (size_t r = 0; r < kBatchRequests; ++r) {
+      batch[r].sector = kBatchBaseSector + r;
+      batch[r].pattern = static_cast<uint8_t>(0xC0 + r);
+      batch[r].completed = false;
+      batch[r].status = virtio_driver::ErrorCode::kTimeout;
+    }
+
+    // 使用 g_multi_sector_buf 为每个请求分配独立的缓冲区
+    // （异步提交共享同一 buffer 会导致设备读到被覆写的数据）
+    bool all_enqueued = true;
+    for (size_t r = 0; r < kBatchRequests; ++r) {
+      auto* buf = g_multi_sector_buf + r * virtio_driver::blk::kSectorSize;
+      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+        buf[i] = static_cast<uint8_t>(batch[r].pattern + (i & 0x0F));
+      }
+
+      virtio_driver::IoVec iov{RiscvTraits::VirtToPhys(buf),
+                               virtio_driver::blk::kSectorSize};
+      auto enq =
+          blk.EnqueueWrite(0, batch[r].sector, &iov, 1,
+                           reinterpret_cast<void*>(static_cast<uintptr_t>(r)));
+      if (!enq.has_value()) {
+        all_enqueued = false;
+        LOG_HEX("  Batch enqueue failed at request", r);
+        break;
+      }
+    }
+    EXPECT_TRUE(all_enqueued, "Async batch: all 3 requests enqueued");
+
+    if (all_enqueued) {
+      // 单次 Kick 通知设备处理所有请求
+      blk.Kick(0);
+
+      // 轮询等待所有请求完成
+      uint32_t completed_count = 0;
+      for (uint32_t spin = 0;
+           spin < 100000000 && completed_count < kBatchRequests; ++spin) {
+        RiscvTraits::Rmb();
+        blk.HandleInterrupt([&batch, &completed_count, kBatchRequests](
+                                void* token, virtio_driver::ErrorCode status) {
+          auto idx = static_cast<size_t>(reinterpret_cast<uintptr_t>(token));
+          if (idx < kBatchRequests && !batch[idx].completed) {
+            batch[idx].completed = true;
+            batch[idx].status = status;
+            ++completed_count;
+          }
+        });
+        if (completed_count >= kBatchRequests) {
+          break;
+        }
+      }
+
+      EXPECT_EQ(static_cast<uint32_t>(kBatchRequests), completed_count,
+                "Async batch: all 3 requests completed via callback");
+
+      bool all_success = true;
+      for (size_t r = 0; r < kBatchRequests; ++r) {
+        if (batch[r].status != virtio_driver::ErrorCode::kSuccess) {
+          all_success = false;
+          LOG_HEX("  Batch request failed, index", r);
+          break;
+        }
+      }
+      EXPECT_TRUE(all_success, "Async batch: all requests returned kSuccess");
+    }
+
+    // 读回验证批量写入的数据
+    LOG("Verifying batch-written sectors...");
+    bool batch_verify_ok = true;
+    for (size_t r = 0; r < kBatchRequests && batch_verify_ok; ++r) {
+      memzero(g_data_buf, sizeof(g_data_buf));
+      auto rd = blk.Read(batch[r].sector, g_data_buf);
+      if (!rd.has_value()) {
+        batch_verify_ok = false;
+        LOG_HEX("  Batch verify read failed at sector", batch[r].sector);
+        break;
+      }
+      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+        auto expected = static_cast<uint8_t>(batch[r].pattern + (i & 0x0F));
+        if (g_data_buf[i] != expected) {
+          batch_verify_ok = false;
+          LOG_HEX("  Batch verify mismatch at sector", batch[r].sector);
+          LOG_HEX("  byte", i);
+          LOG_HEX("  expected", expected);
+          LOG_HEX("  got", g_data_buf[i]);
+          break;
+        }
+      }
+    }
+    EXPECT_TRUE(batch_verify_ok,
+                "Async batch: read-verify matches written data");
+  }
+
+  // === 测试 17: Event Index kicks_elided 验证 ===
+  {
+    LOG("Testing Event Index kicks_elided via rapid async submit...");
+    auto stats_before_ei = blk.GetStats();
+    uint64_t kicks_before = stats_before_ei.kicks_elided;
+
+    // 快速连续提交多个请求并分别 Kick，Event Index 应抑制部分通知
+    constexpr int kRapidKickCount = 6;
+    bool rapid_ok = true;
+    for (int k = 0; k < kRapidKickCount; ++k) {
+      uint64_t sector = 40 + k;
+      auto pattern = static_cast<uint8_t>(0xD0 + k);
+      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+        g_data_buf[i] = static_cast<uint8_t>(pattern + (i & 0x0F));
+      }
+      virtio_driver::IoVec iov{RiscvTraits::VirtToPhys(g_data_buf),
+                               virtio_driver::blk::kSectorSize};
+      auto enq = blk.EnqueueWrite(0, sector, &iov, 1);
+      if (!enq.has_value()) {
+        rapid_ok = false;
+        break;
+      }
+      // 每次 Enqueue 后立即 Kick，测试 Event Index 抑制
+      blk.Kick(0);
+    }
+    EXPECT_TRUE(rapid_ok, "Event Index rapid: all enqueues succeeded");
+
+    // 等待所有请求完成
+    for (uint32_t spin = 0; spin < 100000000; ++spin) {
+      RiscvTraits::Rmb();
+      blk.HandleInterrupt(
+          [](void* /*token*/, virtio_driver::ErrorCode /*status*/) {});
+      // 给设备足够时间处理
+      if (spin > 1000) {
+        break;
+      }
+    }
+
+    auto stats_after_ei = blk.GetStats();
+    LOG_HEX("kicks_elided before rapid test", kicks_before);
+    LOG_HEX("kicks_elided after rapid test", stats_after_ei.kicks_elided);
+    LOG_HEX("total kicks_elided delta",
+            stats_after_ei.kicks_elided - kicks_before);
+
+    // 注意：kicks_elided 是否 > 0 取决于设备处理速度和 Event Index 时序
+    // 在 QEMU 同步模拟中，设备通常立即处理，所以 avail_event 可能总是被超过
+    // 我们仅记录结果，不做强断言，但验证统计值不倒退
+    EXPECT_TRUE(stats_after_ei.kicks_elided >= kicks_before,
+                "Event Index: kicks_elided did not decrease");
+    EXPECT_TRUE(
+        stats_after_ei.bytes_transferred > stats_before_ei.bytes_transferred,
+        "Event Index rapid: bytes_transferred increased");
   }
 
   // 清理：注销中断处理函数

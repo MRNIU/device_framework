@@ -4,11 +4,9 @@
 
 #include <cstdint>
 
-#include "virtio_driver/device/virtio_blk.hpp"
 #include "plic.h"
 #include "test.h"
 #include "uart.h"
-// #include "virtio_blk_test_oo.hpp"  // TODO: 修复 blk 测试后启用
 
 /**
  * @brief 主测试入口
@@ -36,9 +34,6 @@ void test_main(uint32_t hart_id, uint8_t* dtb) {
 
   // 使能机器模式全局中断（已在 boot.S 中设置）
   uart_puts("[INIT] Interrupts enabled\n");
-
-  // 扫描 VirtIO MMIO 设备
-  // scan_virtio_devices();
 
   uart_puts("\nTest: Hello from C++!\n");
   uart_puts("Test: UART is working!\n");
