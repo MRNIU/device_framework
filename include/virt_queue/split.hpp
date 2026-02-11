@@ -113,12 +113,13 @@ class SplitVirtqueue {
      * @note 仅当协商 VIRTIO_F_EVENT_IDX 特性时使用
      * @see virtio-v1.2#2.7.10 Available Buffer Notification Suppression
      */
-    [[nodiscard]] volatile uint16_t* used_event(uint16_t queue_size) volatile {
+    [[nodiscard]] auto used_event(uint16_t queue_size) volatile
+        -> volatile uint16_t* {
       return &ring[queue_size];
     }
 
-    [[nodiscard]] const volatile uint16_t* used_event(uint16_t queue_size) const
-        volatile {
+    [[nodiscard]] auto used_event(uint16_t queue_size) const volatile -> const
+        volatile uint16_t* {
       return &ring[queue_size];
     }
   } __attribute__((packed));
@@ -155,7 +156,7 @@ class SplitVirtqueue {
     /// 设备将下一个描述符条目放入环中的位置(模 queue_size) (little-endian)
     uint16_t idx;
     /// 已用描述符元素数组 ring[queue_size]
-    UsedElem ring[];
+    UsedElem ring[];  // NOLINT(modernize-avoid-c-arrays)
 
     /**
      * @brief 获取 avail_event 字段的指针
@@ -164,24 +165,35 @@ class SplitVirtqueue {
      * @note 仅当协商 VIRTIO_F_EVENT_IDX 特性时使用
      * @see virtio-v1.2#2.7.10 Available Buffer Notification Suppression
      */
-    [[nodiscard]] volatile uint16_t* avail_event(uint16_t queue_size) volatile {
+    [[nodiscard]] auto avail_event(uint16_t queue_size) volatile
+        -> volatile uint16_t* {
       return reinterpret_cast<volatile uint16_t*>(&ring[queue_size]);
     }
 
-    [[nodiscard]] const volatile uint16_t* avail_event(
-        uint16_t queue_size) const volatile {
+    [[nodiscard]] auto avail_event(uint16_t queue_size) const volatile -> const
+        volatile uint16_t* {
       return reinterpret_cast<const volatile uint16_t*>(&ring[queue_size]);
     }
   } __attribute__((packed));
 
   /**
    * @brief 计算给定队列大小所需的 DMA 内存字节数
-   * @param queue_size 队列大小（必须为 2 的幂）
-   * @param event_idx 是否包含 EVENT_IDX 相关字段
-   * @return 所需字节数
+   *
+   * 该静态方法计算分配 Split Virtqueue 所需的连续 DMA 内存大小，
+   * 包括 Descriptor Table、Available Ring 和 Used Ring 三部分，
+   * 以及各部分之间的对齐填充。
+   *
+   * @param queue_size 队列大小（必须为 2 的幂，范围：1 ~ 32768）
+   * @param event_idx 是否启用 VIRTIO_F_EVENT_IDX 特性（影响 used_event 和
+   * avail_event 字段）
+   * @return 所需的 DMA 内存字节数
+   *
+   * @note queue_size 应来自设备报告的 queue_num_max
+   * @note 该函数为 constexpr，可在编译期求值
+   * @see virtio-v1.2#2.6 Split Virtqueues
    */
-  [[nodiscard]] static constexpr auto calc_size(uint16_t queue_size,
-                                                bool event_idx = true)
+  [[nodiscard]] static constexpr auto CalcSize(uint16_t queue_size,
+                                               bool event_idx = true)
       -> size_t {
     // Descriptor Table: sizeof(Desc) * queue_size
     size_t desc_total = static_cast<size_t>(sizeof(Desc)) * queue_size;
@@ -200,93 +212,26 @@ class SplitVirtqueue {
     }
 
     // 按对齐要求排列
-    size_t avail_off = align_up(desc_total, Avail::kAlign);
-    size_t used_off = align_up(avail_off + avail_total, Used::kAlign);
+    size_t avail_off = AlignUp(desc_total, Avail::kAlign);
+    size_t used_off = AlignUp(avail_off + avail_total, Used::kAlign);
 
     return used_off + used_total;
   }
 
   /**
-   * @brief 在预分配的 DMA 内存上创建 SplitVirtqueue
-   * @param mem DMA 内存的虚拟地址（由平台层分配，必须已清零或由此函数清零）
-   * @param mem_size 内存大小（字节），必须 >= calc_size(queue_size)
-   * @param queue_size 队列大小（必须为 2 的幂，且 <= 设备报告的 queue_num_max）
-   * @param phys_base DMA 内存的物理基地址
-   * @return 成功返回实例，失败返回错误
-   */
-  [[nodiscard]] static auto create(void* mem, size_t mem_size,
-                                   uint16_t queue_size, uint64_t phys_base)
-      -> Expected<SplitVirtqueue> {
-    // 检查参数有效性
-    if (mem == nullptr) {
-      return std::unexpected(Error{ErrorCode::kInvalidArgument});
-    }
-
-    // 检查内存对齐，描述符表需要 16 字节对齐
-    if (reinterpret_cast<uintptr_t>(mem) % Desc::kAlign != 0) {
-      return std::unexpected(Error{ErrorCode::kInvalidArgument});
-    }
-    if (phys_base % Desc::kAlign != 0) {
-      return std::unexpected(Error{ErrorCode::kInvalidArgument});
-    }
-
-    if (queue_size == 0 || (queue_size & (queue_size - 1)) != 0) {
-      // 队列大小必须是 2 的幂
-      return std::unexpected(Error{ErrorCode::kInvalidArgument});
-    }
-
-    size_t required_size = calc_size(queue_size, true);
-    if (mem_size < required_size) {
-      return std::unexpected(Error{ErrorCode::kOutOfMemory});
-    }
-
-    SplitVirtqueue vq;
-    vq.queue_size_ = queue_size;
-    vq.phys_base_ = phys_base;
-    vq.event_idx_enabled_ = true;  // 默认启用 EVENT_IDX
-
-    // 计算各部分的偏移
-    vq.desc_offset_ = 0;
-    size_t desc_total = sizeof(Desc) * queue_size;
-
-    vq.avail_offset_ = align_up(desc_total, Avail::kAlign);
-    size_t avail_total =
-        sizeof(uint16_t) * (2 + queue_size + 1);  // +1 for used_event
-
-    vq.used_offset_ = align_up(vq.avail_offset_ + avail_total, Used::kAlign);
-
-    // 设置指针
-    auto base = static_cast<uint8_t*>(mem);
-    vq.desc_ = reinterpret_cast<volatile Desc*>(base + vq.desc_offset_);
-    vq.avail_ = reinterpret_cast<volatile Avail*>(base + vq.avail_offset_);
-    vq.used_ = reinterpret_cast<volatile Used*>(base + vq.used_offset_);
-
-    // 初始化描述符空闲链表
-    for (uint16_t i = 0; i < queue_size; ++i) {
-      vq.desc_[i].next = (i + 1) % queue_size;
-    }
-    vq.free_head_ = 0;
-    vq.num_free_ = queue_size;
-    vq.last_used_idx_ = 0;
-
-    // 清零 Available 和 Used Ring
-    vq.avail_->flags = 0;
-    vq.avail_->idx = 0;
-    vq.used_->flags = 0;
-    vq.used_->idx = 0;
-
-    return vq;
-  }
-
-  /**
    * @brief 从空闲链表分配一个描述符
    *
-   * @warning 非线程安全：多个线程同时调用可能导致竞态条件
+   * 从空闲描述符链表中取出一个描述符，供上层使用。
+   * 调用者必须填充描述符的 addr、len、flags 和 next 字段。
    *
-   * @return 成功返回描述符索引；空闲链表为空时返回
-   * ErrorCode::kNoFreeDescriptors
+   * @return 成功返回描述符索引（range: 0 ~ queue_size-1）；
+   *         空闲链表为空时返回 ErrorCode::kNoFreeDescriptors
+   *
+   * @warning 非线程安全：多个线程同时调用可能导致竞态条件
+   * @see virtio-v1.2#2.7.5 The Virtqueue Descriptor Table
+   * @see virtio-v1.2#2.7.13 Supplying Buffers to The Device
    */
-  [[nodiscard]] auto alloc_desc() -> Expected<uint16_t> {
+  [[nodiscard]] auto AllocDesc() -> Expected<uint16_t> {
     if (num_free_ == 0) {
       return std::unexpected(Error{ErrorCode::kNoFreeDescriptors});
     }
@@ -301,41 +246,63 @@ class SplitVirtqueue {
   /**
    * @brief 归还描述符到空闲链表
    *
-   * @warning 非线程安全：多个线程同时调用可能导致竞态条件
+   * 将不再使用的描述符放回空闲链表，供后续分配使用。
+   * 对于描述符链，调用者必须按正确的顺序释放链中的每个描述符。
    *
-   * @param idx 描述符索引
+   * @param idx 要释放的描述符索引（必须为之前分配的有效索引）
+   *
+   * @warning 非线程安全：多个线程同时调用可能导致竞态条件
+   * @warning 释放已释放的描述符或无效索引会导致空闲链表损坏
+   * @see virtio-v1.2#2.7.14 Receiving Used Buffers From The Device
    */
-  auto free_desc(uint16_t idx) -> void {
+  auto FreeDesc(uint16_t idx) -> void {
     desc_[idx].next = free_head_;
     free_head_ = idx;
     ++num_free_;
   }
 
   /**
-   * @brief 获取描述符的可变引用，用于设置 addr/len/flags/next
-   * @param idx 描述符索引
+   * @brief 获取描述符的可变引用
+   *
+   * 用于设置描述符的 addr、len、flags 和 next 字段。
+   * 调用者必须确保索引有效（通过 AllocDesc() 分配）。
+   *
+   * @param idx 描述符索引（必须 < queue_size）
+   * @return 描述符的 volatile 引用（用于与设备共享内存）
+   * @see virtio-v1.2#2.7.5 The Virtqueue Descriptor Table
    */
-  [[nodiscard]] auto desc(uint16_t idx) -> volatile Desc& { return desc_[idx]; }
-  /// 获取描述符的只读引用
-  [[nodiscard]] auto desc(uint16_t idx) const -> const volatile Desc& {
+  [[nodiscard]] auto GetDesc(uint16_t idx) -> volatile Desc& {
+    return desc_[idx];
+  }
+
+  /**
+   * @brief 获取描述符的只读引用
+   *
+   * @param idx 描述符索引（必须 < queue_size）
+   * @return 描述符的 const volatile 引用
+   */
+  [[nodiscard]] auto GetDesc(uint16_t idx) const -> const volatile Desc& {
     return desc_[idx];
   }
 
   /**
    * @brief 将描述符链提交到 Available Ring
    *
+   * 将描述符链的头部索引放入 Available Ring，使其对设备可见。
+   * 调用此方法后，调用者应使用内存屏障确保 idx 更新对设备可见，
+   * 然后通过 Transport::NotifyQueue() 通知设备。
+   *
+   * @param head 描述符链头部索引（必须为有效的已分配描述符）
+   *
+   * @note 调用者必须在调用此方法前使用写屏障 (wmb) 确保描述符写入完成
+   * @note 调用者必须在调用此方法后使用内存屏障 (mb) 确保 idx 更新对设备可见
+   * @note 这样设计是因为 SplitVirtqueue 不保存 PlatformOps 引用，
+   *       由上层管理内存屏障
+   *
    * @warning 非线程安全：多个线程同时调用可能导致竞态条件
-   *
-   * @param head 链头描述符索引
-   *
-   * @note 调用者必须在调用此函数前确保描述符写入已完成（使用写屏障 wmb）
-   * @note 调用者必须在调用此函数后使用内存屏障（mb）确保 idx 更新对设备可见
-   * @note 这样设计是因为 SplitVirtqueue 不保存 PlatformOps
-   * 引用，由上层管理内存屏障
-   *
    * @see virtio-v1.2#2.7.13 Supplying Buffers to The Device
    */
-  auto submit(uint16_t head) -> void {
+  auto Submit(uint16_t head) -> void {
     uint16_t idx = avail_->idx;
     avail_->ring[idx % queue_size_] = head;
 
@@ -346,21 +313,35 @@ class SplitVirtqueue {
     avail_->idx = idx + 1;
   }
 
-  /// 检查 Used Ring 中是否有已完成的缓冲区
-  [[nodiscard]] auto has_used() const -> bool {
+  /**
+   * @brief 检查 Used Ring 中是否有已完成的缓冲区
+   *
+   * 通过比较驱动程序上次处理的 idx 与设备当前的 idx，
+   * 判断是否有新的已处理缓冲区可供回收。
+   *
+   * @return true 表示有已完成的缓冲区可用，false 表示没有
+   * @see virtio-v1.2#2.7.14 Receiving Used Buffers From The Device
+   */
+  [[nodiscard]] auto HasUsed() const -> bool {
     return last_used_idx_ != used_->idx;
   }
 
   /**
    * @brief 从 Used Ring 弹出一个已完成的元素
    *
-   * @warning 非线程安全：多个线程同时调用可能导致竞态条件
+   * 从 Used Ring 中取出下一个设备已处理完成的缓冲区。
+   * 返回的 UsedElem 包含：
+   * - id: 描述符链头索引（对应之前提交的 head）
+   * - len: 设备写入的字节数（仅对 Device-writable 缓冲区有意义）
    *
-   * @return 成功返回 UsedElem{id, len}；无可用元素时返回
-   * ErrorCode::kNoUsedBuffers
+   * @return 成功返回 UsedElem{id, len}；
+   *         无可用元素时返回 ErrorCode::kNoUsedBuffers
+   *
+   * @warning 非线程安全：多个线程同时调用可能导致竞态条件
+   * @see virtio-v1.2#2.7.14 Receiving Used Buffers From The Device
    */
-  [[nodiscard]] auto pop_used() -> Expected<UsedElem> {
-    if (!has_used()) {
+  [[nodiscard]] auto PopUsed() -> Expected<UsedElem> {
+    if (!HasUsed()) {
       return std::unexpected(Error{ErrorCode::kNoUsedBuffers});
     }
 
@@ -374,81 +355,129 @@ class SplitVirtqueue {
     return elem;
   }
 
-  /// 获取描述符表的物理地址
-  [[nodiscard]] auto desc_phys() const -> uint64_t {
+  /**
+   * @brief 获取描述符表的物理地址
+   *
+   * 返回 Descriptor Table 在客户机物理内存中的地址。
+   * 该地址应通过 Transport::SetQueueDesc() 配置给设备。
+   *
+   * @return 描述符表的 64 位物理地址
+   * @see virtio-v1.2#2.7.5 The Virtqueue Descriptor Table
+   */
+  [[nodiscard]] auto DescPhys() const -> uint64_t {
     return phys_base_ + desc_offset_;
   }
 
-  /// 获取 Available Ring 的物理地址
-  [[nodiscard]] auto avail_phys() const -> uint64_t {
+  /**
+   * @brief 获取 Available Ring 的物理地址
+   *
+   * 返回 Available Ring 在客户机物理内存中的地址。
+   * 该地址应通过 Transport::SetQueueAvail() 配置给设备。
+   *
+   * @return Available Ring 的 64 位物理地址
+   * @see virtio-v1.2#2.7.6 The Virtqueue Available Ring
+   */
+  [[nodiscard]] auto AvailPhys() const -> uint64_t {
     return phys_base_ + avail_offset_;
   }
 
-  /// 获取 Used Ring 的物理地址
-  [[nodiscard]] auto used_phys() const -> uint64_t {
+  /**
+   * @brief 获取 Used Ring 的物理地址
+   *
+   * 返回 Used Ring 在客户机物理内存中的地址。
+   * 该地址应通过 Transport::SetQueueUsed() 配置给设备。
+   *
+   * @return Used Ring 的 64 位物理地址
+   * @see virtio-v1.2#2.7.8 The Virtqueue Used Ring
+   */
+  [[nodiscard]] auto UsedPhys() const -> uint64_t {
     return phys_base_ + used_offset_;
   }
 
-  /// 获取队列大小
-  [[nodiscard]] auto size() const -> uint16_t { return queue_size_; }
+  /**
+   * @brief 获取队列大小
+   *
+   * @return 队列大小（描述符数量）
+   */
+  [[nodiscard]] auto Size() const -> uint16_t { return queue_size_; }
 
-  /// 获取当前空闲描述符数量
-  [[nodiscard]] auto num_free() const -> uint16_t { return num_free_; }
+  /**
+   * @brief 获取当前空闲描述符数量
+   *
+   * 返回当前可用于分配的描述符数量。
+   * 调用者可以根据此值判断是否有足够的描述符可供使用。
+   *
+   * @return 空闲描述符数量（range: 0 ~ queue_size）
+   */
+  [[nodiscard]] auto NumFree() const -> uint16_t { return num_free_; }
 
   /**
    * @brief 获取 Available Ring 的 used_event 字段
+   *
+   * 该字段用于 EVENT_IDX 特性，
+   * 驱动程序通过写入此字段告知设备什么时候需要发送中断。
+   *
    * @return used_event 字段指针，如果未启用 EVENT_IDX 则返回 nullptr
+   *
    * @note 仅当协商 VIRTIO_F_EVENT_IDX 特性时有效
-   * @see virtio-v1.2#2.7.10
+   * @see virtio-v1.2#2.7.10 Available Buffer Notification Suppression
    */
-  [[nodiscard]] auto avail_used_event() -> volatile uint16_t* {
+  [[nodiscard]] auto AvailUsedEvent() -> volatile uint16_t* {
     return event_idx_enabled_ ? avail_->used_event(queue_size_) : nullptr;
   }
-  [[nodiscard]] auto avail_used_event() const -> const volatile uint16_t* {
+
+  [[nodiscard]] auto AvailUsedEvent() const -> const volatile uint16_t* {
     return event_idx_enabled_ ? avail_->used_event(queue_size_) : nullptr;
   }
 
   /**
    * @brief 获取 Used Ring 的 avail_event 字段
+   *
+   * 该字段用于 EVENT_IDX 特性，
+   * 设备通过写入此字段告知驱动程序什么时候需要发送通知。
+   *
    * @return avail_event 字段指针，如果未启用 EVENT_IDX 则返回 nullptr
+   *
    * @note 仅当协商 VIRTIO_F_EVENT_IDX 特性时有效
-   * @see virtio-v1.2#2.7.10
+   * @see virtio-v1.2#2.7.10 Available Buffer Notification Suppression
+   * @see virtio-v1.2#2.7.21 Driver notifications
    */
-  [[nodiscard]] auto used_avail_event() -> volatile uint16_t* {
+  [[nodiscard]] auto UsedAvailEvent() -> volatile uint16_t* {
     return event_idx_enabled_ ? used_->avail_event(queue_size_) : nullptr;
   }
-  [[nodiscard]] auto used_avail_event() const -> const volatile uint16_t* {
+
+  [[nodiscard]] auto UsedAvailEvent() const -> const volatile uint16_t* {
     return event_idx_enabled_ ? used_->avail_event(queue_size_) : nullptr;
   }
 
  private:
   SplitVirtqueue() = default;
 
-  /// 描述符表指针
+  /// 描述符表指针（指向 DMA 内存）
   volatile Desc* desc_ = nullptr;
-  /// Available Ring 指针
+  /// Available Ring 指针（指向 DMA 内存）
   volatile Avail* avail_ = nullptr;
-  /// Used Ring 指针
+  /// Used Ring 指针（指向 DMA 内存）
   volatile Used* used_ = nullptr;
 
-  /// 队列大小
+  /// 队列大小（描述符数量，必须为 2 的幂）
   uint16_t queue_size_ = 0;
   /// 空闲描述符链表头索引
   uint16_t free_head_ = 0;
   /// 空闲描述符数量
   uint16_t num_free_ = 0;
-  /// 上次处理到的 used ring 索引
+  /// 上次处理到的 Used Ring 索引（用于 PopUsed）
   uint16_t last_used_idx_ = 0;
 
-  /// DMA 内存物理基地址
+  /// DMA 内存物理基地址（客户机物理地址）
   uint64_t phys_base_ = 0;
-  /// 描述符表在 DMA 内存中的偏移
+  /// 描述符表在 DMA 内存中的偏移量（字节）
   size_t desc_offset_ = 0;
-  /// Available Ring 在 DMA 内存中的偏移
+  /// Available Ring 在 DMA 内存中的偏移量（字节）
   size_t avail_offset_ = 0;
-  /// Used Ring 在 DMA 内存中的偏移
+  /// Used Ring 在 DMA 内存中的偏移量（字节）
   size_t used_offset_ = 0;
-  /// 是否启用 EVENT_IDX 特性
+  /// 是否启用 VIRTIO_F_EVENT_IDX 特性
   bool event_idx_enabled_ = false;
 };
 

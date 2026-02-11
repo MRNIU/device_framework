@@ -226,7 +226,7 @@ class BlkRequest {
       // 在实际环境中，这里应该是等待中断
       // 当前简单轮询实现
       if (blk_ != nullptr) {
-        blk_->process_used();
+        blk_->ProcessUsed();
       }
     }
     return static_cast<BlkStatus>(status_byte_);
@@ -274,10 +274,10 @@ class BlkRequest {
 
     auto type = static_cast<ReqType>(header_.type);
 
-    // 直接调用底层 do_request 方法（VirtioBlk 是友元）
+    // 直接调用底层 DoRequest 方法（VirtioBlk 是友元）
     // 对于 flush 等不需要数据的请求，data_ 可以为 nullptr
     auto result =
-        blk_->do_request(type, header_.sector, data_, &status_byte_, &header_);
+        blk_->DoRequest(type, header_.sector, data_, &status_byte_, &header_);
 
     if (result.has_value()) {
       submitted_ = true;
@@ -297,7 +297,7 @@ class BlkRequest {
     }
 
     // 处理已完成的请求
-    blk_->process_used();
+    blk_->ProcessUsed();
 
     // 通过状态字节判断是否完成
     // 如果状态字节被设备修改（不再是 0xFF），说明请求已完成

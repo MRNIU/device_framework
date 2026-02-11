@@ -1,21 +1,8 @@
 /**
  * @file virtio_blk.hpp
- * @brief Virtio 块设备驱动接口
+ * @brief Virtio 块设备驱动
  * @copyright Copyright The virtio_driver Contributors
  * @see virtio-v1.2#5.2 Block Device
- *
- * 该文件定义了 virtio 块设备的驱动程序接口，包括：
- * - 块设备特性位（blk_feature namespace）
- * - 设备配置空间结构（BlkConfig）
- * - 请求/响应数据结构（BlkReqHeader、BlkDiscardWriteZeroes 等）
- * - 块设备驱动类（VirtioBlk）
- *
- * 支持的功能：
- * - 基本读写操作（512 字节扇区）
- * - 缓存刷新 (FLUSH)
- * - Discard/Write Zeroes/Secure Erase（可选）
- * - 设备生命周期信息查询（可选）
- * - 多队列支持（可选，当前未实现）
  */
 
 #ifndef VIRTIO_DRIVER_SRC_INCLUDE_VIRTIO_BLK_HPP_
@@ -300,154 +287,44 @@ static constexpr size_t kDeviceIdMaxLen = 20;
 
 /**
  * @brief Virtio 块设备驱动
- * @see virtio-v1.2#5.2 Block Device
  *
  * virtio 块设备是一个简单的虚拟块设备（即磁盘）。
  * 读写请求（以及其他特殊请求）被放置在请求队列中，由设备服务（可能乱序）。
  *
- * ### 设备特性
- * - 支持读写操作（512 字节扇区）
- * - 支持缓存刷新 (FLUSH)
- * - 支持 discard/write zeroes/secure erase（需要相应特性）
- * - 支持多队列（需要 VIRTIO_BLK_F_MQ）
- * - 支持设备生命周期信息（需要 VIRTIO_BLK_F_LIFETIME）
+ * 主要特性：
+ * - 读写操作（512 字节扇区）
+ * - 缓存刷新 (FLUSH)
+ * - Discard/Write Zeroes/Secure Erase（可选）
+ * - 多队列（可选，需要 VIRTIO_BLK_F_MQ）
+ * - 设备生命周期信息（可选，需要 VIRTIO_BLK_F_LIFETIME）
  *
- * ### 请求格式
- * 使用 Split Virtqueue，每个请求由 3 个描述符链组成：
+ * 请求格式（Split Virtqueue）：
  * 1. 请求头（设备只读）: BlkReqHeader
  * 2. 数据缓冲区（读=设备只写，写=设备只读）
  * 3. 状态字节（设备只写）: BlkStatus
  *
- * ### 使用示例
- * ```cpp
- * // 1. 创建传输层
- * auto transport = MmioTransport::create(base_addr).value();
- *
- * // 2. 分配 virtqueue DMA 内存
- * auto queue_max = transport.get_queue_num_max(0);
- * auto mem_size = SplitVirtqueue::calc_size(queue_max);
- * auto* mem = platform.alloc_pages(pages_needed);
- * auto vq = SplitVirtqueue::create(mem, mem_size, queue_max, phys).value();
- *
- * // 3. 创建并初始化块设备
- * auto blk = VirtioBlk::create(transport, vq, platform).value();
- *
- * // 4. 读取配置并发起请求
- * auto config = blk.read_config();
- * BlkReqHeader header{};
- * uint8_t data[512];
- * uint8_t status_byte;
- * blk.read(0, data, &status_byte, &header);
- *
- * // 5. 中断处理
- * blk.process_used();
- * ```
- *
- * @note 当前实现仅支持单队列模式
- * @note 所有 DMA 缓冲区必须位于物理连续内存
- */
-// 前向声明
-class BlkRequest;
-
-/**
- * @brief Virtio 块设备驱动
+ * @tparam LogFunc 日志函数类型（可选）
  * @see virtio-v1.2#5.2 Block Device
- *
- * virtio 块设备是一个简单的虚拟块设备（即磁盘）。
- * 读写请求（以及其他特殊请求）被放置在请求队列中，由设备服务（可能乱序）。
- *
- * ### 设备特性
- * - 支持读写操作（512 字节扇区）
- * - 支持缓存刷新 (FLUSH)
- * - 支持 discard/write zeroes/secure erase（需要相应特性）
- * - 支持多队列（需要 VIRTIO_BLK_F_MQ）
- * - 支持设备生命周期信息（需要 VIRTIO_BLK_F_LIFETIME）
- *
- * ### 请求格式
- * 使用 Split Virtqueue，每个请求由 3 个描述符链组成：
- * 1. 请求头（设备只读）: BlkReqHeader
- * 2. 数据缓冲区（读=设备只写，写=设备只读）
- * 3. 状态字节（设备只写）: BlkStatus
- *
- * ### 使用示例（传统方式）
- * ```cpp
- * // 1. 创建传输层
- * auto transport = MmioTransport::create(base_addr).value();
- *
- * // 2. 分配 virtqueue DMA 内存
- * auto queue_max = transport.get_queue_num_max(0);
- * auto mem_size = SplitVirtqueue::calc_size(queue_max);
- * auto* mem = platform.alloc_pages(pages_needed);
- * auto vq = SplitVirtqueue::create(mem, mem_size, queue_max, phys).value();
- *
- * // 3. 创建并初始化块设备
- * auto blk = VirtioBlk::create(transport, vq, platform).value();
- *
- * // 4. 读取配置并发起请求
- * auto config = blk.read_config();
- * BlkReqHeader header{};
- * uint8_t data[512];
- * uint8_t status_byte;
- * blk.read(0, data, &status_byte, &header);
- *
- * // 5. 中断处理
- * blk.process_used();
- * ```
- *
- * ### 使用示例（RAII 封装）
- * ```cpp
- * // 使用 BlkRequest 自动管理生命周期
- * #include "blk_request.hpp"
- *
- * auto blk = VirtioBlk::create(...).value();
- * uint8_t data[512];
- *
- * // 同步读取
- * auto req = BlkRequest::read(blk, 0, data).value();
- * auto status = req.wait();
- *
- * // 异步读取
- * auto req = BlkRequest::read(blk, 0, data).value();
- * // ... 执行其他操作 ...
- * if (req.is_complete()) {
- *     auto status = req.status().value();
- * }
- * ```
- *
- * @note 当前实现仅支持单队列模式
- * @note 所有 DMA 缓冲区必须位于物理连续内存
- */
-/**
- * @brief VirtioBlk 设备驱动类
- *
- * @tparam LogFunc 日志函数对象类型（必须与 Transport 的 LogFunc 一致）
- *
- * @note 继承自 Logger<LogFunc> 以支持设备层日志
  */
 template <class LogFunc = std::nullptr_t>
 class VirtioBlk : public Logger<LogFunc> {
-  // BlkRequest 需要访问 do_request()
-  friend class BlkRequest;
-
  public:
   /// Transport 类型别名（确保类型一致）
   using TransportType = Transport<LogFunc>;
 
   /**
    * @brief 创建并初始化块设备
-   * @see virtio-v1.2#3.1 Device Initialization
    *
    * 使用 DeviceInitializer 执行标准的 virtio 设备初始化序列。
    *
-   * @param transport 传输层实例（类型必须为 Transport<LogFunc>&）
-   * @param vq 预创建的 SplitVirtqueue（单队列）
+   * @param transport 传输层引用（类型必须为 Transport<LogFunc>&）
+   * @param vq SplitVirtqueue 引用（单队列）
    * @param platform 平台操作接口（提供物理地址转换和内存屏障）
    * @param driver_features 驱动希望启用的额外特性位（默认仅 VERSION_1）
    * @return 成功返回 VirtioBlk 实例，失败返回错误
-   * @retval Error::kFeatureNegotiationFailed 特性协商失败（设备不支持
-   * VERSION_1）
+   * @see virtio-v1.2#3.1 Device Initialization
    */
-  [[nodiscard]] static auto create(TransportType& transport, SplitVirtqueue& vq,
+  [[nodiscard]] static auto Create(TransportType& transport, SplitVirtqueue& vq,
                                    const PlatformOps& platform,
                                    uint64_t driver_features = 0)
       -> Expected<VirtioBlk> {
@@ -472,7 +349,7 @@ class VirtioBlk : public Logger<LogFunc> {
     // 2. 配置 virtqueue 0（块设备仅使用一个队列）
     const uint32_t queue_idx = 0;
     auto setup_result = initializer.SetupQueue(
-        queue_idx, vq.desc_phys(), vq.avail_phys(), vq.used_phys(), vq.size());
+        queue_idx, vq.DescPhys(), vq.AvailPhys(), vq.UsedPhys(), vq.Size());
     if (!setup_result) {
       return std::unexpected(setup_result.error());
     }
@@ -488,67 +365,60 @@ class VirtioBlk : public Logger<LogFunc> {
 
   /**
    * @brief 发起块设备读请求
-   * @see virtio-v1.2#5.2.6 Device Operation
    *
    * 提交一个读取请求到设备。请求是异步的，实际完成通过中断通知。
-   * 驱动程序应在收到中断后调用 process_used() 处理完成的请求。
+   * 驱动程序应在收到中断后调用 ProcessUsed() 处理完成的请求。
    *
    * @param sector 起始扇区号（以 512 字节为单位）
-   * @param data 数据缓冲区（至少 SECTOR_SIZE 字节，必须位于 DMA 可访问内存）
+   * @param data 数据缓冲区（至少 kSectorSize 字节，必须位于 DMA 可访问内存）
    * @param status_out 状态字节输出指针（必须位于 DMA 可访问内存）
    * @param header 请求头缓冲区指针（必须位于 DMA 可访问内存）
    * @return 成功表示请求已提交，失败返回错误
-   * @retval Error::kNoDescriptors virtqueue 描述符不足
-   *
-   * @note 请求完成后 status_out 将包含 BlkStatus 值
    * @note 所有缓冲区在请求完成前不得释放或修改
+   * @see virtio-v1.2#5.2.6 Device Operation
    */
-  [[nodiscard]] auto read(uint64_t sector, uint8_t* data, uint8_t* status_out,
+  [[nodiscard]] auto Read(uint64_t sector, uint8_t* data, uint8_t* status_out,
                           BlkReqHeader* header) -> Expected<void> {
-    return do_request(ReqType::kIn, sector, data, status_out, header);
+    return DoRequest(ReqType::kIn, sector, data, status_out, header);
   }
 
   /**
    * @brief 发起块设备写请求
-   * @see virtio-v1.2#5.2.6 Device Operation
    *
    * 提交一个写入请求到设备。请求是异步的，实际完成通过中断通知。
    *
    * @param sector 起始扇区号（以 512 字节为单位）
-   * @param data 数据缓冲区（至少 SECTOR_SIZE 字节，必须位于 DMA 可访问内存）
+   * @param data 数据缓冲区（至少 kSectorSize 字节，必须位于 DMA 可访问内存）
    * @param status_out 状态字节输出指针（必须位于 DMA 可访问内存）
    * @param header 请求头缓冲区指针（必须位于 DMA 可访问内存）
    * @return 成功表示请求已提交，失败返回错误
-   * @retval Error::kNoDescriptors virtqueue 描述符不足
-   *
-   * @note 如果设备协商了 VIRTIO_BLK_F_RO，所有写请求将失败（状态
-   * IOERR）
+   * @note 如果设备协商了 VIRTIO_BLK_F_RO，所有写请求将失败（状态 IOERR）
    * @note 所有缓冲区在请求完成前不得释放或修改
+   * @see virtio-v1.2#5.2.6 Device Operation
    */
-  [[nodiscard]] auto write(uint64_t sector, const uint8_t* data,
+  [[nodiscard]] auto Write(uint64_t sector, const uint8_t* data,
                            uint8_t* status_out, BlkReqHeader* header)
       -> Expected<void> {
-    return do_request(ReqType::kOut, sector, const_cast<uint8_t*>(data),
-                      status_out, header);
+    return DoRequest(ReqType::kOut, sector, const_cast<uint8_t*>(data),
+                     status_out, header);
   }
 
   /**
    * @brief 处理已完成的请求
-   * @see virtio-v1.2#2.7.8 The Virtqueue Used Ring
    *
    * 遍历 Used Ring，释放已完成请求占用的描述符。
    * 通常在接收到设备中断后调用此函数。
    *
    * @return 本次处理的已完成请求数量
-   *
    * @note 此函数会自动释放描述符链（header + data + status 三个描述符）
    * @note 调用者需要在调用前确保已执行适当的内存屏障
+   * @see virtio-v1.2#2.7.8 The Virtqueue Used Ring
    */
-  auto process_used() -> uint32_t {
+  auto ProcessUsed() -> uint32_t {
     uint32_t count = 0;
 
-    while (vq_.has_used()) {
-      auto result = vq_.pop_used();
+    while (vq_.HasUsed()) {
+      auto result = vq_.PopUsed();
       if (!result.has_value()) {
         break;
       }
@@ -559,8 +429,8 @@ class VirtioBlk : public Logger<LogFunc> {
       // 释放描述符链：header -> data -> status
       uint16_t idx = head;
       for (int i = 0; i < 3; ++i) {
-        uint16_t next = vq_.desc(idx).next;
-        vq_.free_desc(idx);
+        uint16_t next = vq_.GetDesc(idx).next;
+        vq_.FreeDesc(idx);
         idx = next;
       }
 
@@ -572,29 +442,28 @@ class VirtioBlk : public Logger<LogFunc> {
 
   /**
    * @brief 确认设备中断
-   * @see virtio-v1.2#2.3 Notifications
    *
    * 读取中断状态寄存器并写入中断确认寄存器，清除待处理的中断。
    * 通常在中断处理程序开始时调用。
+   *
+   * @see virtio-v1.2#2.3 Notifications
    */
-  auto ack_interrupt() -> void {
+  auto AckInterrupt() -> void {
     uint32_t status = transport_.GetInterruptStatus();
     transport_.AckInterrupt(status);
   }
 
   /**
    * @brief 读取块设备配置空间
-   * @see virtio-v1.2#5.2.4 Device configuration layout
    *
    * 读取设备的配置信息，包括容量、几何信息、拓扑信息等。
    * 配置空间的可用字段取决于协商的特性位。
    *
    * @return 块设备配置结构
-   *
-   * @note 实际生产环境中应使用 generation counter 机制确保配置一致性
-   * @note 多字节字段可能需要多次读取，参考 virtio-v1.2#2.5.1
+   * @note 多字节字段使用 generation counter 机制确保配置一致性
+   * @see virtio-v1.2#5.2.4 Device configuration layout
    */
-  [[nodiscard]] auto read_config() const -> BlkConfig {
+  [[nodiscard]] auto ReadConfig() const -> BlkConfig {
     BlkConfig config{};
 
     // 读取基本配置（总是可用）
@@ -663,11 +532,11 @@ class VirtioBlk : public Logger<LogFunc> {
 
   /**
    * @brief 获取设备容量
-   * @see virtio-v1.2#5.2.4
    *
    * @return 设备容量（以 512 字节扇区为单位）
+   * @see virtio-v1.2#5.2.4
    */
-  [[nodiscard]] auto capacity() const -> uint64_t {
+  [[nodiscard]] auto GetCapacity() const -> uint64_t {
     return transport_.ReadConfigU64(
         static_cast<uint32_t>(BlkConfigOffset::kCapacity));
   }
@@ -677,29 +546,21 @@ class VirtioBlk : public Logger<LogFunc> {
    *
    * @return 设备和驱动程序都支持的特性位掩码
    */
-  [[nodiscard]] auto negotiated_features() const -> uint64_t {
+  [[nodiscard]] auto GetNegotiatedFeatures() const -> uint64_t {
     return negotiated_features_;
   }
 
-  /**
-   * @brief 获取传输层引用
-   *
-   * @return 传输层对象引用
-   */
-  [[nodiscard]] auto transport() -> TransportType& { return transport_; }
+  /// 获取传输层引用
+  [[nodiscard]] auto GetTransport() -> TransportType& { return transport_; }
 
-  /**
-   * @brief 获取 virtqueue 引用
-   *
-   * @return SplitVirtqueue 对象引用
-   */
-  [[nodiscard]] auto virtqueue() -> SplitVirtqueue& { return vq_; }
+  /// 获取 virtqueue 引用
+  [[nodiscard]] auto GetVirtqueue() -> SplitVirtqueue& { return vq_; }
 
  private:
   /**
    * @brief 私有构造函数
    *
-   * 只能通过 create() 静态工厂方法创建实例。
+   * 只能通过 Create() 静态工厂方法创建实例。
    *
    * @param transport 传输层引用
    * @param vq virtqueue 引用
@@ -714,16 +575,7 @@ class VirtioBlk : public Logger<LogFunc> {
         negotiated_features_(features) {}
 
   /**
-   * @brief 使用 Logger 基类的 Log 方法
-   *
-   * 提供设备层日志功能，格式示例：
-   * this->Log("[VirtioBlk] Read sector %llu", sector);
-   */
-  using Logger<LogFunc>::Log;
-
-  /**
    * @brief 内部请求提交函数
-   * @see virtio-v1.2#5.2.6 Device Operation
    *
    * 分配 3 个描述符并组成描述符链：
    * - 描述符 0: 请求头（设备只读）
@@ -736,28 +588,29 @@ class VirtioBlk : public Logger<LogFunc> {
    * @param status_out 状态字节输出指针
    * @param header 请求头缓冲区指针
    * @return 成功返回 void，失败返回错误
+   * @see virtio-v1.2#5.2.6 Device Operation
    */
-  [[nodiscard]] auto do_request(ReqType type, uint64_t sector, uint8_t* data,
-                                uint8_t* status_out, BlkReqHeader* header)
+  [[nodiscard]] auto DoRequest(ReqType type, uint64_t sector, uint8_t* data,
+                               uint8_t* status_out, BlkReqHeader* header)
       -> Expected<void> {
     // 分配 3 个描述符：header -> data -> status
-    auto desc0_result = vq_.alloc_desc();
+    auto desc0_result = vq_.AllocDesc();
     if (!desc0_result.has_value()) {
       return std::unexpected(desc0_result.error());
     }
     uint16_t desc0 = desc0_result.value();
 
-    auto desc1_result = vq_.alloc_desc();
+    auto desc1_result = vq_.AllocDesc();
     if (!desc1_result.has_value()) {
-      vq_.free_desc(desc0);
+      vq_.FreeDesc(desc0);
       return std::unexpected(desc1_result.error());
     }
     uint16_t desc1 = desc1_result.value();
 
-    auto desc2_result = vq_.alloc_desc();
+    auto desc2_result = vq_.AllocDesc();
     if (!desc2_result.has_value()) {
-      vq_.free_desc(desc0);
-      vq_.free_desc(desc1);
+      vq_.FreeDesc(desc0);
+      vq_.FreeDesc(desc1);
       return std::unexpected(desc2_result.error());
     }
     uint16_t desc2 = desc2_result.value();
@@ -768,29 +621,29 @@ class VirtioBlk : public Logger<LogFunc> {
     header->sector = sector;
 
     // 设置描述符 0：请求头（设备只读）
-    vq_.desc(desc0).addr = platform_.virt_to_phys(header);
-    vq_.desc(desc0).len = sizeof(BlkReqHeader);
-    vq_.desc(desc0).flags = SplitVirtqueue::kDescFNext;
-    vq_.desc(desc0).next = desc1;
+    vq_.GetDesc(desc0).addr = platform_.virt_to_phys(header);
+    vq_.GetDesc(desc0).len = sizeof(BlkReqHeader);
+    vq_.GetDesc(desc0).flags = SplitVirtqueue::kDescFNext;
+    vq_.GetDesc(desc0).next = desc1;
 
     // 设置描述符 1：数据缓冲区
-    vq_.desc(desc1).addr = platform_.virt_to_phys(data);
-    vq_.desc(desc1).len = kSectorSize;
+    vq_.GetDesc(desc1).addr = platform_.virt_to_phys(data);
+    vq_.GetDesc(desc1).len = kSectorSize;
     if (type == ReqType::kIn) {
       // 读取：设备写入数据
-      vq_.desc(desc1).flags =
+      vq_.GetDesc(desc1).flags =
           SplitVirtqueue::kDescFNext | SplitVirtqueue::kDescFWrite;
     } else {
       // 写入：设备读取数据
-      vq_.desc(desc1).flags = SplitVirtqueue::kDescFNext;
+      vq_.GetDesc(desc1).flags = SplitVirtqueue::kDescFNext;
     }
-    vq_.desc(desc1).next = desc2;
+    vq_.GetDesc(desc1).next = desc2;
 
     // 设置描述符 2：状态字节（设备只写）
-    vq_.desc(desc2).addr = platform_.virt_to_phys(status_out);
-    vq_.desc(desc2).len = sizeof(uint8_t);
-    vq_.desc(desc2).flags = SplitVirtqueue::kDescFWrite;
-    vq_.desc(desc2).next = 0;
+    vq_.GetDesc(desc2).addr = platform_.virt_to_phys(status_out);
+    vq_.GetDesc(desc2).len = sizeof(uint8_t);
+    vq_.GetDesc(desc2).flags = SplitVirtqueue::kDescFWrite;
+    vq_.GetDesc(desc2).next = 0;
 
     // 内存屏障：确保描述符已写入内存
     if (platform_.wmb) {
@@ -798,7 +651,7 @@ class VirtioBlk : public Logger<LogFunc> {
     }
 
     // 提交到 Available Ring
-    vq_.submit(desc0);
+    vq_.Submit(desc0);
 
     // 内存屏障：确保 Available Ring 更新对设备可见
     if (platform_.mb) {
