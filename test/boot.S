@@ -2,8 +2,6 @@
  * @copyright Copyright The virtio_driver Contributors
  */
 
-#include "macro.S"
-
 // S-mode CSR 定义
 .equ SSTATUS_SIE, 0x2       // Supervisor 模式全局中断使能
 .equ SIE_SEIE, 0x200        // Supervisor 模式外部中断使能
@@ -30,9 +28,9 @@ _boot:
     // 开辟栈空间
     addi sp, sp, -8*2
     // a0 为启动核 id
-    SdBase a0, 0, sp
+    sd a0, 0(sp)
     // a1 为 dtb 地址
-    SdBase a1, 1, sp
+    sd a1, 8(sp)
 
     // 设置 Supervisor 模式中断向量
     la t0, _s_trap_entry

@@ -5,7 +5,6 @@
 #include <cstdint>
 
 #include "plic.h"
-#include "test_base.hpp"
 #include "uart.h"
 // #include "virtio_blk_test_oo.hpp"  // TODO: 修复 blk 测试后启用
 
