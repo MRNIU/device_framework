@@ -5,8 +5,12 @@
 #ifndef VIRTIO_DRIVER_VIRT_QUEUE_SPLIT_HPP_
 #define VIRTIO_DRIVER_VIRT_QUEUE_SPLIT_HPP_
 
+#include <utility>
+
 #include "virtio_driver/expected.hpp"
+#include "virtio_driver/traits.hpp"
 #include "virtio_driver/virt_queue/misc.hpp"
+#include "virtio_driver/virt_queue/virtqueue_base.hpp"
 
 namespace virtio_driver {
 
@@ -29,9 +33,12 @@ namespace virtio_driver {
  * @warning 单生产者-单消费者：描述符分配和提交应由同一线程执行，
  *                          已用缓冲区回收应由另一线程执行（通常在中断处理程序中）。
  *
+ * @tparam Traits 平台环境特征类型
  * @see virtio-v1.2#2.7
  */
-class SplitVirtqueue {
+template <VirtioEnvironmentTraits Traits = NullTraits>
+class SplitVirtqueue final
+    : public VirtqueueBase<Traits, SplitVirtqueue<Traits>> {
  public:
   /**
    * @brief Descriptor Flags
@@ -251,7 +258,7 @@ class SplitVirtqueue {
    * @see virtio-v1.2#2.7
    */
   SplitVirtqueue(void* dma_buf, uint64_t phys_base, uint16_t queue_size,
-                 bool event_idx = true, size_t used_align = Used::kAlign)
+                 bool event_idx, size_t used_align = Used::kAlign)
       : queue_size_(queue_size),
         phys_base_(phys_base),
         event_idx_enabled_(event_idx) {
@@ -387,10 +394,10 @@ class SplitVirtqueue {
    *
    * @param head 描述符链头部索引（必须为有效的已分配描述符）
    *
-   * @note 调用者必须在调用此方法前使用写屏障 (wmb) 确保描述符写入完成
-   * @note 调用者必须在调用此方法后使用内存屏障 (mb) 确保 idx 更新对设备可见
-   * @note 这样设计是因为 SplitVirtqueue 不保存 Traits 引用，
-   *       由上层管理内存屏障
+   * @note 调用者必须在调用此方法前确保描述符写入已完成
+   * @note 调用者必须在调用此方法后通知设备（如 Transport::NotifyQueue()）
+   *
+   * @see Traits::Wmb() 用于确保 ring 写入在 idx 更新之前对设备可见
    *
    * @warning 非线程安全：多个线程同时调用可能导致竞态条件
    * @see virtio-v1.2#2.7.13 Supplying Buffers to The Device
@@ -399,9 +406,8 @@ class SplitVirtqueue {
     uint16_t idx = avail_->idx;
     avail_->ring[idx % queue_size_] = head;
 
-    // 编译器屏障：防止编译器重排序
-    // 真正的内存屏障由调用者负责（通过 Traits）
-    asm volatile("" ::: "memory");
+    // 写屏障：确保 ring 写入在 idx 更新之前对设备可见
+    Traits::Wmb();
 
     avail_->idx = idx + 1;
   }
@@ -446,6 +452,136 @@ class SplitVirtqueue {
     ++last_used_idx_;
 
     return elem;
+  }
+
+  /**
+   * @brief 提交 Scatter-Gather 描述符链
+   *
+   * 从空闲链表分配描述符，按顺序组装 readable（设备只读）和
+   * writable（设备可写） 缓冲区为描述符链，自动设置 NEXT 标志串联，并提交到
+   * Available Ring。
+   *
+   * 描述符链顺序：[readable_0, ..., readable_N, writable_0, ..., writable_M]
+   * - readable 部分：flags = kDescFNext（无 kDescFWrite）
+   * - writable 部分：flags = kDescFNext | kDescFWrite
+   * - 最后一个描述符清除 kDescFNext
+   *
+   * 调用者在调用此方法后仍需调用内存屏障 + Transport::NotifyQueue() 通知设备。
+   *
+   * @param readable 设备只读缓冲区数组（如请求头、写入数据）
+   * @param readable_count readable 数组中的元素数量
+   * @param writable 设备可写缓冲区数组（如读取数据、状态字节）
+   * @param writable_count writable 数组中的元素数量
+   * @return 成功返回描述符链头索引（可用作 token）；失败返回错误
+   *
+   * @pre readable_count + writable_count > 0
+   * @pre readable_count + writable_count <= NumFree()
+   * @post 描述符链已提交到 Available Ring
+   *
+   * @warning 非线程安全
+   * @see virtio-v1.2#2.7.13 Supplying Buffers to The Device
+   * @see 架构文档 §3 Scatter-Gather
+   */
+  [[nodiscard]] auto SubmitChain(const IoVec* readable, size_t readable_count,
+                                 const IoVec* writable, size_t writable_count)
+      -> Expected<uint16_t> {
+    size_t total = readable_count + writable_count;
+    if (total == 0) {
+      return std::unexpected(Error{ErrorCode::kInvalidArgument});
+    }
+    if (num_free_ < static_cast<uint16_t>(total)) {
+      return std::unexpected(Error{ErrorCode::kNoFreeDescriptors});
+    }
+
+    uint16_t head = free_head_;
+    uint16_t prev_idx = 0xFFFF;  // sentinel
+
+    // 设备只读缓冲区（无 kDescFWrite 标志）
+    for (size_t i = 0; i < readable_count; ++i) {
+      uint16_t idx = free_head_;
+      free_head_ = desc_[free_head_].next;
+      --num_free_;
+
+      desc_[idx].addr = readable[i].phys_addr;
+      desc_[idx].len = static_cast<uint32_t>(readable[i].len);
+      desc_[idx].flags = kDescFNext;
+
+      if (prev_idx != 0xFFFF) {
+        desc_[prev_idx].next = idx;
+      }
+      prev_idx = idx;
+    }
+
+    // 设备可写缓冲区（kDescFWrite 标志）
+    for (size_t i = 0; i < writable_count; ++i) {
+      uint16_t idx = free_head_;
+      free_head_ = desc_[free_head_].next;
+      --num_free_;
+
+      desc_[idx].addr = writable[i].phys_addr;
+      desc_[idx].len = static_cast<uint32_t>(writable[i].len);
+      desc_[idx].flags = kDescFNext | kDescFWrite;
+
+      if (prev_idx != 0xFFFF) {
+        desc_[prev_idx].next = idx;
+      }
+      prev_idx = idx;
+    }
+
+    // 最后一个描述符清除 NEXT 标志
+    desc_[prev_idx].flags =
+        desc_[prev_idx].flags & ~static_cast<uint16_t>(kDescFNext);
+
+    // 写屏障：确保描述符写入在 Available Ring 更新之前对设备可见
+    Traits::Wmb();
+
+    // 提交到 Available Ring
+    Submit(head);
+
+    return head;
+  }
+
+  /**
+   * @brief 释放整条描述符链
+   *
+   * 从链头开始，沿 next 指针遍历并释放所有描述符，直到遇到
+   * 不含 kDescFNext 标志的描述符为止。
+   *
+   * 典型用法：在 PopUsed() 获取已完成请求的 head 后，
+   * 用此方法一次性归还整条链的描述符。
+   *
+   * @param head 描述符链头索引
+   * @return 成功或失败（如 head 索引无效）
+   *
+   * @warning 非线程安全
+   * @see virtio-v1.2#2.7.14 Receiving Used Buffers From The Device
+   */
+  auto FreeChain(uint16_t head) -> Expected<void> {
+    if (head >= queue_size_) {
+      return std::unexpected(Error{ErrorCode::kInvalidDescriptor});
+    }
+
+    uint16_t idx = head;
+    while (true) {
+      if (idx >= queue_size_) {
+        return std::unexpected(Error{ErrorCode::kInvalidDescriptor});
+      }
+
+      uint16_t next = desc_[idx].next;
+      bool has_next = (desc_[idx].flags & kDescFNext) != 0;
+
+      // 归还到空闲链表
+      desc_[idx].next = free_head_;
+      free_head_ = idx;
+      ++num_free_;
+
+      if (!has_next) {
+        break;
+      }
+      idx = next;
+    }
+
+    return {};
   }
 
   /**
@@ -549,7 +685,8 @@ class SplitVirtqueue {
   auto operator=(const SplitVirtqueue&) -> SplitVirtqueue& = delete;
   auto operator=(SplitVirtqueue&&) -> SplitVirtqueue& = delete;
   SplitVirtqueue(SplitVirtqueue&& other) noexcept
-      : desc_(other.desc_),
+      : VirtqueueBase<Traits, SplitVirtqueue<Traits>>(std::move(other)),
+        desc_(other.desc_),
         avail_(other.avail_),
         used_(other.used_),
         queue_size_(other.queue_size_),

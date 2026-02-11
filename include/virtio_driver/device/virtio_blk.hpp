@@ -288,75 +288,131 @@ static constexpr size_t kSectorSize = 512;
 static constexpr size_t kDeviceIdMaxLen = 20;
 
 /**
+ * @brief VirtIO 设备性能监控统计数据
+ * @see 架构文档 §3
+ */
+struct VirtioStats {
+  /// 已传输字节数
+  uint64_t bytes_transferred{0};
+  /// 借助 Event Index 省略的 Kick 次数
+  uint64_t kicks_elided{0};
+  /// 已处理的中断次数
+  uint64_t interrupts_handled{0};
+  /// 队列满导致入队失败的次数
+  uint64_t queue_full_errors{0};
+};
+
+/**
  * @brief Virtio 块设备驱动
  *
  * virtio 块设备是一个简单的虚拟块设备（即磁盘）。
  * 读写请求（以及其他特殊请求）被放置在请求队列中，由设备服务（可能乱序）。
  *
  * 该类封装了 VirtIO 块设备的完整生命周期：
- * - 传输层（MmioTransport）的创建和管理
- * - Split Virtqueue 的创建和管理
+ * - 传输层的创建和管理（通过 TransportT 模板参数泛化）
+ * - Virtqueue 的创建和管理（通过 VirtqueueT 模板参数泛化）
  * - 设备初始化序列（特性协商、队列配置、设备激活）
- * - 同步读写操作（请求构建、轮询、完成处理）
+ * - 异步 IO 接口（Enqueue/Kick/HandleInterrupt 回调模型）
+ * - 同步读写便捷方法（基于异步接口实现）
  *
- * 用户只需提供 MMIO 基地址、DMA 缓冲区和平台操作接口，
- * 即可通过 Read() / Write() 进行块设备操作。
+ * 用户只需提供 MMIO 基地址和 DMA 缓冲区，
+ * 即可通过 Read() / Write() 或异步接口进行块设备操作。
  *
  * @tparam Traits 平台环境特征类型
+ * @tparam TransportT 传输层模板（默认 MmioTransport）
+ * @tparam VirtqueueT Virtqueue 模板（默认 SplitVirtqueue）
  * @see virtio-v1.2#5.2 Block Device
+ * @see 架构文档 §3
  */
-template <VirtioEnvironmentTraits Traits = NullTraits>
+template <VirtioEnvironmentTraits Traits = NullTraits,
+          template <class> class TransportT = MmioTransport,
+          template <class> class VirtqueueT = SplitVirtqueue>
 class VirtioBlk {
  public:
+  /// 异步 IO 回调中使用的用户自定义上下文指针类型
+  using UserData = void*;
+
+  /// 每个设备的最大并发(in-flight)请求数
+  static constexpr uint16_t kMaxInflight = 64;
+
+  /// 每个 Scatter-Gather 请求的最大 IoVec 数量（含请求头和状态字节）
+  static constexpr size_t kMaxSgElements = 18;
+
   /**
-   * @brief 计算 Virtqueue DMA 缓冲区所需的字节数
+   * @brief 获取多队列所需的总 DMA 内存大小
    *
    * 调用者应根据此值预分配页对齐、已清零的 DMA 内存。
+   *
+   * @param queue_count 请求的队列数量
+   * @param queue_size 每个队列的描述符数量（必须为 2 的幂）
+   * @return pair.first = 总字节数，pair.second = 对齐要求（字节）
+   * @see 架构文档 §3
+   */
+  [[nodiscard]] static constexpr auto GetRequiredVqMemSize(uint16_t queue_count,
+                                                           uint32_t queue_size)
+      -> std::pair<size_t, size_t> {
+    size_t per_queue =
+        VirtqueueT<Traits>::CalcSize(static_cast<uint16_t>(queue_size), false);
+    return {per_queue * queue_count, 4096};
+  }
+
+  /**
+   * @brief 计算单个 Virtqueue DMA 缓冲区所需的字节数（向后兼容）
    *
    * @param queue_size 队列大小（2 的幂，默认 128）
    * @return 所需的 DMA 内存字节数
    */
   [[nodiscard]] static constexpr auto CalcDmaSize(uint16_t queue_size = 128)
       -> size_t {
-    return SplitVirtqueue::CalcSize(queue_size, false);
+    return VirtqueueT<Traits>::CalcSize(queue_size, false);
   }
 
   /**
    * @brief 创建并初始化块设备
    *
    * 内部自动完成：
-   * 1. MmioTransport 初始化和验证
-   * 2. SplitVirtqueue 创建
+   * 1. Transport 初始化和验证
+   * 2. Virtqueue 创建
    * 3. VirtIO 设备初始化序列（重置、特性协商、队列配置、设备激活）
    *
    * @param mmio_base MMIO 设备基地址
    * @param vq_dma_buf 预分配的 DMA 缓冲区虚拟地址
-   *        （页对齐，已清零，大小 >= CalcDmaSize(queue_size)）
-   * @param platform 平台操作接口（提供虚拟地址到物理地址转换）
-   * @param queue_size 队列大小（2 的幂，默认 128）
+   *        （页对齐，已清零，大小 >= GetRequiredVqMemSize()）
+   * @param queue_count 期望的队列数量（当前仅支持 1）
+   * @param queue_size 每个队列的描述符数量（2 的幂，默认 128）
    * @param driver_features 额外的驱动特性位（VERSION_1 自动包含）
    * @return 成功返回 VirtioBlk 实例，失败返回错误
    * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
    */
   [[nodiscard]] static auto Create(uint64_t mmio_base, void* vq_dma_buf,
-                                   uint16_t queue_size = 128,
+                                   uint16_t queue_count = 1,
+                                   uint32_t queue_size = 128,
                                    uint64_t driver_features = 0)
       -> Expected<VirtioBlk> {
+    // 当前仅支持单队列
+    if (queue_count == 0) {
+      return std::unexpected(Error{ErrorCode::kInvalidArgument});
+    }
+    if (queue_count > 1) {
+      Traits::Log("Multi-queue not yet supported, using 1 queue");
+    }
+
     // 1. 创建传输层
-    MmioTransport<Traits> transport(mmio_base);
+    TransportT<Traits> transport(mmio_base);
     if (!transport.IsValid()) {
       return std::unexpected(Error{ErrorCode::kTransportNotInitialized});
     }
 
     // 2. 创建 Virtqueue
     uint64_t dma_phys = Traits::VirtToPhys(vq_dma_buf);
-    SplitVirtqueue vq(vq_dma_buf, dma_phys, queue_size, false);
+    VirtqueueT<Traits> vq(vq_dma_buf, dma_phys,
+                          static_cast<uint16_t>(queue_size), false);
     if (!vq.IsValid()) {
       return std::unexpected(Error{ErrorCode::kInvalidArgument});
     }
 
     // 3. 设备初始化序列
-    DeviceInitializer<Traits, MmioTransport<Traits>> initializer(transport);
+    DeviceInitializer<Traits, TransportT<Traits>> initializer(transport);
 
     uint64_t wanted_features =
         static_cast<uint64_t>(ReservedFeature::kVersion1) | driver_features;
@@ -389,11 +445,120 @@ class VirtioBlk {
     return VirtioBlk(std::move(transport), std::move(vq), negotiated);
   }
 
+  // ======== 异步 IO 接口 (Enqueue/Kick/HandleInterrupt) ========
+
+  /**
+   * @brief 异步提交读请求（仅入队描述符，不触发硬件通知）
+   *
+   * 构建 virtio-blk 请求描述符链（header + data buffers + status），
+   * 提交到 Available Ring，但不通知设备。调用者需随后调用 Kick() 通知。
+   *
+   * @param queue_index 队列索引（当前仅支持 0）
+   * @param sector 起始扇区号（以 512 字节为单位）
+   * @param buffers 数据缓冲区 IoVec 数组（物理地址 + 长度）
+   * @param buffer_count buffers 数组中的元素数量
+   * @param token 用户自定义上下文指针，在 HandleInterrupt 回调时原样传回
+   * @return 成功或失败
+   * @see virtio-v1.2#5.2.6 Device Operation
+   */
+  [[nodiscard]] auto EnqueueRead(uint16_t queue_index, uint64_t sector,
+                                 const IoVec* buffers, size_t buffer_count,
+                                 UserData token = nullptr) -> Expected<void> {
+    return DoEnqueue(ReqType::kIn, queue_index, sector, buffers, buffer_count,
+                     token);
+  }
+
+  /**
+   * @brief 异步提交写请求（仅入队描述符，不触发硬件通知）
+   *
+   * 构建 virtio-blk 请求描述符链（header + data buffers + status），
+   * 提交到 Available Ring，但不通知设备。调用者需随后调用 Kick() 通知。
+   *
+   * 针对 Write 操作，数据缓冲区的描述符 flag 为设备只读（无
+   * VRING_DESC_F_WRITE）。
+   *
+   * @param queue_index 队列索引（当前仅支持 0）
+   * @param sector 起始扇区号（以 512 字节为单位）
+   * @param buffers 数据缓冲区 IoVec 数组（物理地址 + 长度）
+   * @param buffer_count buffers 数组中的元素数量
+   * @param token 用户自定义上下文指针，在 HandleInterrupt 回调时原样传回
+   * @return 成功或失败
+   * @see virtio-v1.2#5.2.6 Device Operation
+   */
+  [[nodiscard]] auto EnqueueWrite(uint16_t queue_index, uint64_t sector,
+                                  const IoVec* buffers, size_t buffer_count,
+                                  UserData token = nullptr) -> Expected<void> {
+    return DoEnqueue(ReqType::kOut, queue_index, sector, buffers, buffer_count,
+                     token);
+  }
+
+  /**
+   * @brief 批量触发硬件通知
+   *
+   * 通知设备 Available Ring 中有新的待处理请求。
+   * 调用者应在 EnqueueRead/EnqueueWrite 后调用此方法。
+   *
+   * @param queue_index 队列索引（当前仅支持 0）
+   * @see virtio-v1.2#2.7.13 Supplying Buffers to The Device
+   */
+  auto Kick(uint16_t queue_index) -> void {
+    if (queue_index != 0) {
+      return;
+    }
+    // 写屏障：确保 Available Ring 更新对设备可见
+    Traits::Wmb();
+    transport_.NotifyQueue(queue_index);
+  }
+
+  /**
+   * @brief 中断处理（带完成回调）
+   *
+   * 在 ISR 或轮询循环中调用。确认设备中断，遍历 Used Ring 中已完成的请求，
+   * 对每个请求调用 on_complete 回调，释放描述符链和请求槽。
+   *
+   * @tparam CompletionCallback 签名要求：void(UserData token, ErrorCode status)
+   *         - token: 提交时传入的用户上下文指针
+   *         - status: 设备返回的完成状态映射为 ErrorCode
+   * @param on_complete 完成回调函数
+   * @see virtio-v1.2#2.7.14 Receiving Used Buffers From The Device
+   */
+  template <typename CompletionCallback>
+  auto HandleInterrupt(CompletionCallback&& on_complete) -> void {
+    // 确认中断
+    uint32_t isr_status = transport_.GetInterruptStatus();
+    if (isr_status != 0) {
+      transport_.AckInterrupt(isr_status);
+    }
+    stats_.interrupts_handled++;
+
+    // 处理完成的请求
+    ProcessCompletions(static_cast<CompletionCallback&&>(on_complete));
+  }
+
+  /**
+   * @brief 中断处理（简化版，无回调）
+   *
+   * 仅确认设备中断并设置完成标志，供同步轮询使用。
+   * 不处理 Used Ring 和描述符回收。
+   *
+   * @note 此方法可在中断上下文中安全调用（ISR-safe）
+   * @see virtio-v1.2#2.3 Notifications
+   */
+  auto HandleInterrupt() -> void {
+    uint32_t status = transport_.GetInterruptStatus();
+    if (status != 0) {
+      transport_.AckInterrupt(status);
+    }
+    request_completed_ = true;
+    Traits::Wmb();
+  }
+
+  // ======== 同步便捷方法 ========
+
   /**
    * @brief 同步读取一个扇区
    *
-   * 提交读请求到设备，等待完成，处理结果并返回。
-   * 所有内部细节（请求头、状态字节、轮询、描述符管理）均自动处理。
+   * 基于异步接口实现：EnqueueRead → Kick → 轮询 HandleInterrupt → 返回。
    *
    * @param sector 起始扇区号（以 512 字节为单位）
    * @param data 数据缓冲区（至少 kSectorSize 字节，必须位于 DMA 可访问内存）
@@ -402,13 +567,56 @@ class VirtioBlk {
    * @see virtio-v1.2#5.2.6 Device Operation
    */
   [[nodiscard]] auto Read(uint64_t sector, uint8_t* data) -> Expected<void> {
-    return DoSyncRequest(ReqType::kIn, sector, data);
+    if (data == nullptr) {
+      return std::unexpected(Error{ErrorCode::kInvalidArgument});
+    }
+
+    IoVec data_iov{Traits::VirtToPhys(data), kSectorSize};
+    auto enq = EnqueueRead(0, sector, &data_iov, 1, nullptr);
+    if (!enq) {
+      return std::unexpected(enq.error());
+    }
+
+    // 重置完成标志（在通知设备之前）
+    request_completed_ = false;
+    Traits::Mb();
+
+    Kick(0);
+
+    // 轮询等待完成
+    static constexpr uint32_t kMaxSpinIterations = 100000000;
+    for (uint32_t i = 0; i < kMaxSpinIterations; ++i) {
+      Traits::Rmb();
+      if (request_completed_ || vq_.HasUsed()) {
+        break;
+      }
+    }
+
+    if (!vq_.HasUsed()) {
+      return std::unexpected(Error{ErrorCode::kTimeout});
+    }
+
+    // 处理完成的请求
+    ErrorCode result = ErrorCode::kSuccess;
+    bool done = false;
+    ProcessCompletions([&done, &result](UserData /*token*/, ErrorCode status) {
+      done = true;
+      result = status;
+    });
+
+    if (!done) {
+      return std::unexpected(Error{ErrorCode::kTimeout});
+    }
+    if (result != ErrorCode::kSuccess) {
+      return std::unexpected(Error{result});
+    }
+    return {};
   }
 
   /**
    * @brief 同步写入一个扇区
    *
-   * 提交写请求到设备，等待完成，处理结果并返回。
+   * 基于异步接口实现：EnqueueWrite → Kick → 轮询 HandleInterrupt → 返回。
    *
    * @param sector 起始扇区号（以 512 字节为单位）
    * @param data 数据缓冲区（至少 kSectorSize 字节，必须位于 DMA 可访问内存）
@@ -418,8 +626,53 @@ class VirtioBlk {
    */
   [[nodiscard]] auto Write(uint64_t sector, const uint8_t* data)
       -> Expected<void> {
-    return DoSyncRequest(ReqType::kOut, sector, const_cast<uint8_t*>(data));
+    if (data == nullptr) {
+      return std::unexpected(Error{ErrorCode::kInvalidArgument});
+    }
+
+    IoVec data_iov{Traits::VirtToPhys(const_cast<uint8_t*>(data)), kSectorSize};
+    auto enq = EnqueueWrite(0, sector, &data_iov, 1, nullptr);
+    if (!enq) {
+      return std::unexpected(enq.error());
+    }
+
+    // 重置完成标志（在通知设备之前）
+    request_completed_ = false;
+    Traits::Mb();
+
+    Kick(0);
+
+    // 轮询等待完成
+    static constexpr uint32_t kMaxSpinIterations = 100000000;
+    for (uint32_t i = 0; i < kMaxSpinIterations; ++i) {
+      Traits::Rmb();
+      if (request_completed_ || vq_.HasUsed()) {
+        break;
+      }
+    }
+
+    if (!vq_.HasUsed()) {
+      return std::unexpected(Error{ErrorCode::kTimeout});
+    }
+
+    // 处理完成的请求
+    ErrorCode result = ErrorCode::kSuccess;
+    bool done = false;
+    ProcessCompletions([&done, &result](UserData /*token*/, ErrorCode status) {
+      done = true;
+      result = status;
+    });
+
+    if (!done) {
+      return std::unexpected(Error{ErrorCode::kTimeout});
+    }
+    if (result != ErrorCode::kSuccess) {
+      return std::unexpected(Error{result});
+    }
+    return {};
   }
+
+  // ======== 配置与监控 ========
 
   /**
    * @brief 读取块设备配置空间
@@ -534,21 +787,12 @@ class VirtioBlk {
   }
 
   /**
-   * @brief 设备中断处理入口
+   * @brief 获取性能监控统计数据
    *
-   * 确认设备中断并通知等待中的同步请求。用户应将此方法注册到
-   * 对应 VirtIO 设备的硬件中断处理程序中（如通过 PLIC 注册的 ISR）。
-   *
-   * @note 此方法可在中断上下文中安全调用（ISR-safe）
-   * @note 使用原子操作保证多核环境下的正确性
-   * @see virtio-v1.2#2.3 Notifications
+   * @return 当前统计数据的快照
+   * @see 架构文档 §3
    */
-  auto HandleInterrupt() -> void {
-    uint32_t status = transport_.GetInterruptStatus();
-    transport_.AckInterrupt(status);
-    request_completed_ = true;
-    Traits::Wmb();
-  }
+  [[nodiscard]] auto GetStats() const -> VirtioStats { return stats_; }
 
   /// @name 移动/拷贝控制
   /// @{
@@ -556,17 +800,30 @@ class VirtioBlk {
       : transport_(std::move(other.transport_)),
         vq_(std::move(other.vq_)),
         negotiated_features_(other.negotiated_features_),
-        req_header_(other.req_header_),
-        status_byte_(other.status_byte_),
-        request_completed_(other.request_completed_) {}
+        stats_(other.stats_),
+        request_completed_(other.request_completed_) {
+    for (uint16_t i = 0; i < kMaxInflight; ++i) {
+      slots_[i].header = other.slots_[i].header;
+      slots_[i].status = other.slots_[i].status;
+      slots_[i].token = other.slots_[i].token;
+      slots_[i].desc_head = other.slots_[i].desc_head;
+      slots_[i].in_use = other.slots_[i].in_use;
+    }
+  }
   auto operator=(VirtioBlk&& other) noexcept -> VirtioBlk& {
     if (this != &other) {
       transport_ = std::move(other.transport_);
       vq_ = std::move(other.vq_);
       negotiated_features_ = other.negotiated_features_;
-      req_header_ = other.req_header_;
-      status_byte_ = other.status_byte_;
+      stats_ = other.stats_;
       request_completed_ = other.request_completed_;
+      for (uint16_t i = 0; i < kMaxInflight; ++i) {
+        slots_[i].header = other.slots_[i].header;
+        slots_[i].status = other.slots_[i].status;
+        slots_[i].token = other.slots_[i].token;
+        slots_[i].desc_head = other.slots_[i].desc_head;
+        slots_[i].in_use = other.slots_[i].in_use;
+      }
     }
     return *this;
   }
@@ -577,187 +834,251 @@ class VirtioBlk {
 
  private:
   /**
+   * @brief 异步请求上下文槽
+   *
+   * 每个 in-flight 请求占用一个槽，存储请求头（DMA可访问）、
+   * 状态字节（设备回写）、用户 token 和描述符链头索引。
+   */
+  struct RequestSlot {
+    /// 请求头（DMA 可访问，设备只读）
+    alignas(16) BlkReqHeader header;
+    /// 状态字节（DMA 可访问，设备只写）
+    alignas(4) volatile uint8_t status;
+    /// 用户自定义上下文指针
+    UserData token;
+    /// 描述符链头索引（用于在 Used Ring 中匹配）
+    uint16_t desc_head;
+    /// 该槽是否被占用
+    bool in_use;
+  };
+
+  /**
    * @brief 私有构造函数
    *
    * 只能通过 Create() 静态工厂方法创建实例。
    */
-  VirtioBlk(MmioTransport<Traits> transport, SplitVirtqueue vq,
+  VirtioBlk(TransportT<Traits> transport, VirtqueueT<Traits> vq,
             uint64_t features)
       : transport_(std::move(transport)),
         vq_(std::move(vq)),
         negotiated_features_(features),
-        req_header_{},
-        status_byte_(0),
-        request_completed_(false) {}
+        stats_{},
+        request_completed_(false) {
+    for (uint16_t i = 0; i < kMaxInflight; ++i) {
+      slots_[i].in_use = false;
+    }
+  }
 
   /**
-   * @brief 同步请求的内部实现
+   * @brief 异步入队请求的内部实现
    *
-   * 完成从请求提交到结果返回的完整流程：
-   * 1. 分配描述符并组成描述符链
-   * 2. 提交到 Available Ring 并通知设备
-   * 3. 自旋等待中断驱动的完成通知（HandleInterrupt 设置原子标志）
-   * 4. 回收描述符
-   * 5. 检查设备返回的状态
+   * 分配请求槽，填充请求头，构建 Scatter-Gather 描述符链，提交到 Available
+   * Ring。
    *
    * @param type 请求类型（kIn/kOut）
+   * @param queue_index 队列索引
    * @param sector 起始扇区号
-   * @param data 数据缓冲区指针
+   * @param buffers 数据缓冲区 IoVec 数组
+   * @param buffer_count 缓冲区数量
+   * @param token 用户上下文指针
    * @return 成功或失败
-   * @see virtio-v1.2#5.2.6 Device Operation
    */
-  [[nodiscard]] auto DoSyncRequest(ReqType type, uint64_t sector, uint8_t* data)
+  [[nodiscard]] auto DoEnqueue(ReqType type, uint16_t queue_index,
+                               uint64_t sector, const IoVec* buffers,
+                               size_t buffer_count, UserData token)
       -> Expected<void> {
-    if (data == nullptr) {
+    // 当前仅支持 queue 0
+    if (queue_index != 0) {
       return std::unexpected(Error{ErrorCode::kInvalidArgument});
     }
 
+    // 检查 SG 元素数量限制（header + data[] + status）
+    if (buffer_count + 2 > kMaxSgElements) {
+      return std::unexpected(Error{ErrorCode::kInvalidArgument});
+    }
+
+    // 分配请求槽
+    auto slot_result = AllocRequestSlot();
+    if (!slot_result) {
+      stats_.queue_full_errors++;
+      return std::unexpected(slot_result.error());
+    }
+    uint16_t slot_idx = *slot_result;
+    auto& slot = slots_[slot_idx];
+
     // 填充请求头
-    req_header_.type = static_cast<uint32_t>(type);
-    req_header_.reserved = 0;
-    req_header_.sector = sector;
-    status_byte_ = 0xFF;
+    slot.header.type = static_cast<uint32_t>(type);
+    slot.header.reserved = 0;
+    slot.header.sector = sector;
+    slot.status = 0xFF;  // sentinel：设备完成后会覆写
+    slot.token = token;
 
-    // 分配 3 个描述符：header -> data -> status
-    auto desc0_result = vq_.AllocDesc();
-    if (!desc0_result.has_value()) {
-      return std::unexpected(desc0_result.error());
-    }
-    uint16_t desc0 = *desc0_result;
+    // 构建 Scatter-Gather 描述符链
+    IoVec readable_iovs[kMaxSgElements];
+    IoVec writable_iovs[kMaxSgElements];
+    size_t readable_count = 0;
+    size_t writable_count = 0;
 
-    auto desc1_result = vq_.AllocDesc();
-    if (!desc1_result.has_value()) {
-      (void)vq_.FreeDesc(desc0);
-      return std::unexpected(desc1_result.error());
-    }
-    uint16_t desc1 = *desc1_result;
+    // 请求头始终为 device-readable
+    readable_iovs[readable_count++] = {Traits::VirtToPhys(&slot.header),
+                                       sizeof(BlkReqHeader)};
 
-    auto desc2_result = vq_.AllocDesc();
-    if (!desc2_result.has_value()) {
-      (void)vq_.FreeDesc(desc0);
-      (void)vq_.FreeDesc(desc1);
-      return std::unexpected(desc2_result.error());
-    }
-    uint16_t desc2 = *desc2_result;
-
-    // 描述符 0：请求头（设备只读）
-    auto* d0 = *vq_.GetDesc(desc0);
-    d0->addr = Traits::VirtToPhys(&req_header_);
-    d0->len = sizeof(BlkReqHeader);
-    d0->flags = SplitVirtqueue::kDescFNext;
-    d0->next = desc1;
-
-    // 描述符 1：数据缓冲区
-    auto* d1 = *vq_.GetDesc(desc1);
-    d1->addr = Traits::VirtToPhys(data);
-    d1->len = kSectorSize;
     if (type == ReqType::kIn) {
-      d1->flags = SplitVirtqueue::kDescFNext | SplitVirtqueue::kDescFWrite;
+      // 读请求：数据缓冲区为 device-writable
+      for (size_t i = 0; i < buffer_count; ++i) {
+        writable_iovs[writable_count++] = buffers[i];
+      }
     } else {
-      d1->flags = SplitVirtqueue::kDescFNext;
-    }
-    d1->next = desc2;
-
-    // 描述符 2：状态字节（设备只写）
-    auto* d2 = *vq_.GetDesc(desc2);
-    d2->addr = Traits::VirtToPhys(const_cast<uint8_t*>(&status_byte_));
-    d2->len = sizeof(uint8_t);
-    d2->flags = SplitVirtqueue::kDescFWrite;
-    d2->next = 0;
-
-    // 重置完成标志（在提交请求之前）
-    request_completed_ = false;
-
-    // 内存屏障：确保完成标志重置 + 描述符写入对所有核心/设备可见
-    Traits::Mb();
-
-    // 提交到 Available Ring
-    vq_.Submit(desc0);
-
-    // 内存屏障：确保 Available Ring 更新对设备可见
-    Traits::Mb();
-
-    // 通知设备
-    transport_.NotifyQueue(0);
-
-    // 等待中断驱动的完成通知
-    // HandleInterrupt() 在硬件中断处理程序中被调用后设置 request_completed_
-    static constexpr uint32_t kMaxSpinIterations = 100000000;
-    uint32_t spin_count = 0;
-    while (spin_count < kMaxSpinIterations) {
-      Traits::Rmb();
-      if (request_completed_) {
-        break;
+      // 写请求：数据缓冲区为 device-readable
+      for (size_t i = 0; i < buffer_count; ++i) {
+        readable_iovs[readable_count++] = buffers[i];
       }
-      ++spin_count;
     }
 
-    if (!vq_.HasUsed()) {
-      (void)vq_.FreeDesc(desc0);
-      (void)vq_.FreeDesc(desc1);
-      (void)vq_.FreeDesc(desc2);
-      return std::unexpected(Error{ErrorCode::kTimeout});
+    // 状态字节始终为 device-writable
+    writable_iovs[writable_count++] = {
+        Traits::VirtToPhys(
+            const_cast<uint8_t*>(static_cast<volatile uint8_t*>(&slot.status))),
+        sizeof(uint8_t)};
+
+    // 写屏障：确保请求头写入对设备可见
+    Traits::Wmb();
+
+    // 提交描述符链
+    auto chain_result = vq_.SubmitChain(readable_iovs, readable_count,
+                                        writable_iovs, writable_count);
+    if (!chain_result) {
+      FreeRequestSlot(slot_idx);
+      stats_.queue_full_errors++;
+      return std::unexpected(chain_result.error());
     }
 
-    // 处理完成的请求
-    ProcessUsed();
-
-    // 检查设备状态
-    if (status_byte_ != static_cast<uint8_t>(BlkStatus::kOk)) {
-      if (status_byte_ == static_cast<uint8_t>(BlkStatus::kIoErr)) {
-        return std::unexpected(Error{ErrorCode::kIoError});
-      }
-      if (status_byte_ == static_cast<uint8_t>(BlkStatus::kUnsupp)) {
-        return std::unexpected(Error{ErrorCode::kNotSupported});
-      }
-      return std::unexpected(Error{ErrorCode::kDeviceError});
-    }
+    slot.desc_head = *chain_result;
 
     return {};
   }
 
   /**
-   * @brief 处理已完成的请求，释放描述符
+   * @brief 处理 Used Ring 中已完成的请求
+   *
+   * 遍历 Used Ring，对每个已完成的请求：
+   * 1. 查找对应的请求槽
+   * 2. 读取设备返回的状态字节
+   * 3. 调用回调函数
+   * 4. 释放描述符链和请求槽
+   *
+   * @tparam CompletionCallback void(UserData token, ErrorCode status)
+   * @param on_complete 完成回调
    */
-  auto ProcessUsed() -> void {
+  template <typename CompletionCallback>
+  auto ProcessCompletions(CompletionCallback&& on_complete) -> void {
+    // 读屏障：确保读取到设备最新的 Used Ring 写入
+    Traits::Rmb();
+
     while (vq_.HasUsed()) {
-      auto result = vq_.PopUsed();
-      if (!result.has_value()) {
+      auto elem_result = vq_.PopUsed();
+      if (!elem_result) {
         break;
       }
 
-      auto elem = *result;
-      uint16_t idx = static_cast<uint16_t>(elem.id);
+      auto elem = *elem_result;
+      auto head = static_cast<uint16_t>(elem.id);
+
+      // 查找请求槽
+      uint16_t slot_idx = FindSlotByDescHead(head);
+      if (slot_idx < kMaxInflight) {
+        auto& slot = slots_[slot_idx];
+
+        // 读屏障：确保状态字节的写入对 CPU 可见
+        Traits::Rmb();
+
+        // 将设备 BlkStatus 映射为 ErrorCode
+        ErrorCode ec = MapBlkStatus(slot.status);
+        on_complete(slot.token, ec);
+
+        // 累计统计
+        stats_.bytes_transferred += elem.len;
+
+        // 释放资源
+        FreeRequestSlot(slot_idx);
+      }
 
       // 释放描述符链
-      while (true) {
-        auto desc_result = vq_.GetDesc(idx);
-        if (!desc_result.has_value()) {
-          break;
-        }
-        auto* desc = *desc_result;
-        uint16_t next = desc->next;
-        bool has_next = (desc->flags & SplitVirtqueue::kDescFNext) != 0;
-        (void)vq_.FreeDesc(idx);
-        if (!has_next) {
-          break;
-        }
-        idx = next;
-      }
+      (void)vq_.FreeChain(head);
     }
   }
 
-  /// 传输层（MMIO）
-  MmioTransport<Traits> transport_;
-  /// Virtqueue（Split）
-  SplitVirtqueue vq_;
+  /**
+   * @brief 从请求槽池中分配一个空闲槽
+   *
+   * @return 成功返回槽索引，失败返回错误
+   */
+  [[nodiscard]] auto AllocRequestSlot() -> Expected<uint16_t> {
+    for (uint16_t i = 0; i < kMaxInflight; ++i) {
+      if (!slots_[i].in_use) {
+        slots_[i].in_use = true;
+        return i;
+      }
+    }
+    return std::unexpected(Error{ErrorCode::kNoFreeDescriptors});
+  }
+
+  /**
+   * @brief 释放请求槽
+   *
+   * @param idx 槽索引
+   */
+  auto FreeRequestSlot(uint16_t idx) -> void {
+    if (idx < kMaxInflight) {
+      slots_[idx].in_use = false;
+    }
+  }
+
+  /**
+   * @brief 根据描述符链头索引查找请求槽
+   *
+   * @param desc_head 描述符链头索引
+   * @return 匹配的槽索引，未找到则返回 kMaxInflight
+   */
+  [[nodiscard]] auto FindSlotByDescHead(uint16_t desc_head) const -> uint16_t {
+    for (uint16_t i = 0; i < kMaxInflight; ++i) {
+      if (slots_[i].in_use && slots_[i].desc_head == desc_head) {
+        return i;
+      }
+    }
+    return kMaxInflight;
+  }
+
+  /**
+   * @brief 将设备 BlkStatus 映射为 ErrorCode
+   *
+   * @param status 设备返回的原始状态字节
+   * @return 对应的 ErrorCode
+   */
+  [[nodiscard]] static auto MapBlkStatus(uint8_t status) -> ErrorCode {
+    switch (status) {
+      case static_cast<uint8_t>(BlkStatus::kOk):
+        return ErrorCode::kSuccess;
+      case static_cast<uint8_t>(BlkStatus::kIoErr):
+        return ErrorCode::kIoError;
+      case static_cast<uint8_t>(BlkStatus::kUnsupp):
+        return ErrorCode::kNotSupported;
+      default:
+        return ErrorCode::kDeviceError;
+    }
+  }
+
+  /// 传输层实例
+  TransportT<Traits> transport_;
+  /// Virtqueue 实例（当前支持单队列）
+  VirtqueueT<Traits> vq_;
   /// 协商后的特性位掩码
   uint64_t negotiated_features_;
-  /// 内部请求头（DMA 可访问）
-  alignas(16) BlkReqHeader req_header_;
-  /// 内部状态字节（DMA 可访问）
-  alignas(16) volatile uint8_t status_byte_;
-  /// 请求完成标志（由 HandleInterrupt 在中断上下文中设置）
+  /// 性能统计数据
+  VirtioStats stats_;
+  /// 请求槽池（用于跟踪 in-flight 异步请求）
+  RequestSlot slots_[kMaxInflight];
+  /// 请求完成标志（由简化版 HandleInterrupt 在中断上下文中设置）
   volatile bool request_completed_;
 };
 

@@ -13,6 +13,8 @@ namespace virtio_driver {
 
 /// virtio 驱动错误码
 enum class ErrorCode : uint32_t {
+  /// 操作成功
+  kSuccess = 0,
   /// 无效的 MMIO 魔数
   kInvalidMagic = 1,
   /// 无效的版本号
@@ -56,6 +58,8 @@ enum class ErrorCode : uint32_t {
  */
 constexpr auto GetErrorMessage(ErrorCode code) -> const char* {
   switch (code) {
+    case ErrorCode::kSuccess:
+      return "Success";
     case ErrorCode::kInvalidMagic:
       return "Invalid MMIO magic value";
     case ErrorCode::kInvalidVersion:

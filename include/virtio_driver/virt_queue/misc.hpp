@@ -49,6 +49,22 @@ namespace virtio_driver {
   return value != 0 && (value & (value - 1)) == 0;
 }
 
+/**
+ * @brief Scatter-Gather IO 物理内存向量
+ *
+ * 描述一段用于 DMA 传输的物理内存区域。上层通过 IoVec 数组描述
+ * Scatter-Gather IO 请求，Virtqueue 层自动将其组装为描述符链。
+ *
+ * @see 架构文档 §3
+ * @see virtio-v1.2#2.7.5 The Virtqueue Descriptor Table
+ */
+struct IoVec {
+  /// 物理地址（DMA 地址）
+  uintptr_t phys_addr;
+  /// 长度（字节）
+  size_t len;
+};
+
 }  // namespace virtio_driver
 
 #endif /* VIRTIO_DRIVER_VIRT_QUEUE_MISC_HPP_ */

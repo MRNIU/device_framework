@@ -124,7 +124,7 @@ void test_virtio_blk() {
       static_cast<uint64_t>(virtio_driver::blk::BlkFeatureBit::kFlush) |
       static_cast<uint64_t>(virtio_driver::blk::BlkFeatureBit::kGeometry);
   auto blk_result =
-      VirtioBlkType::Create(blk_base, g_vq_dma_buf, 128, extra_features);
+      VirtioBlkType::Create(blk_base, g_vq_dma_buf, 1, 128, extra_features);
   EXPECT_TRUE(blk_result.has_value(), "VirtioBlk::Create() succeeds");
   if (!blk_result.has_value()) {
     LOG("VirtioBlk::Create() failed, skipping remaining tests");
