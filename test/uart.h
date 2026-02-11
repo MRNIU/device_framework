@@ -5,6 +5,7 @@
 #ifndef VIRTIO_DRIVER_TESTS_UART_H_
 #define VIRTIO_DRIVER_TESTS_UART_H_
 
+#include <cstdarg>
 #include <cstdint>
 
 /**
@@ -34,6 +35,42 @@ void uart_puts(const char *str);
  * @param num 要输出的数字
  */
 void uart_put_hex(uint64_t num);
+
+/**
+ * @brief 输出十进制无符号整数到 UART
+ * @param num 要输出的数字
+ */
+void uart_put_dec(uint64_t num);
+
+/**
+ * @brief 简易格式化输出到 UART
+ *
+ * 支持的格式说明符：
+ * - %s: 字符串
+ * - %d: 有符号十进制整数
+ * - %u: 无符号十进制整数
+ * - %x: 十六进制（无前缀）
+ * - %p: 指针（0x 前缀十六进制）
+ * - %08x: 8 位零填充十六进制
+ * - %%: 字面 %
+ *
+ * @param format 格式化字符串
+ * @param ... 可变参数
+ * @return 输出的字符数
+ */
+auto uart_printf(const char *format, ...) -> int;
+
+/**
+ * @brief 简易格式化输出到 UART（va_list 版本）
+ *
+ * 与 uart_printf 相同，但接受 va_list 参数。
+ * 用于实现自定义的可变参数日志函数。
+ *
+ * @param format 格式化字符串
+ * @param args va_list 参数
+ * @return 输出的字符数
+ */
+auto uart_vprintf(const char *format, va_list args) -> int;
 
 /**
  * @brief 初始化 UART（包含中断配置）

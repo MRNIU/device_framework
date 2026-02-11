@@ -4,7 +4,9 @@
 
 #include "uart.h"
 
-#include <array>
+#include <cstdarg>
+#include <cstddef>
+#include <cstdint>
 
 /**
  * @brief UART 寄存器偏移
@@ -78,25 +80,206 @@ void uart_puts(const char *str) {
 }
 
 void uart_put_hex(uint64_t num) {
-  std::array<char, 17> hex_chars = {"0123456789abcdef"};
-  std::array<char, 19> buf;  // "0x" + 16 hex digits + null
-  int i;
+  constexpr char hex_chars[] = "0123456789abcdef";
+  char buf[19];  // "0x" + 16 hex digits + null
 
   buf[0] = '0';
   buf[1] = 'x';
 
-  for (i = 15; i >= 0; i--) {
+  for (int i = 15; i >= 0; i--) {
     buf[2 + i] = hex_chars[num & 0xF];
     num >>= 4;
   }
 
   buf[18] = '\0';
-  uart_puts(buf.data());
+  uart_puts(buf);
 }
 
 void uart_init() {
   // 使能接收数据中断
   uart_write_reg(UART_REG_IER, UART_IER_RDA);
+}
+
+void uart_put_dec(uint64_t num) {
+  if (num == 0) {
+    uart_putc('0');
+    return;
+  }
+
+  char buf[21];  // uint64_t 最大 20 位十进制 + null
+  int pos = 0;
+
+  while (num > 0) {
+    buf[pos++] = static_cast<char>('0' + (num % 10));
+    num /= 10;
+  }
+
+  // 反转输出
+  for (int i = pos - 1; i >= 0; --i) {
+    uart_putc(buf[i]);
+  }
+}
+
+/// 内部辅助：输出零填充的十六进制数（无前缀）
+static void uart_put_hex_padded(uint64_t num, int width) {
+  constexpr char hex_chars[] = "0123456789abcdef";
+  char buf[17];  // 最多 16 位 hex
+  if (width > 16) {
+    width = 16;
+  }
+
+  for (int i = width - 1; i >= 0; --i) {
+    buf[i] = hex_chars[num & 0xF];
+    num >>= 4;
+  }
+  buf[width] = '\0';
+  uart_puts(buf);
+}
+
+auto uart_printf(const char *format, ...) -> int {
+  va_list args;
+  va_start(args, format);
+  int count = uart_vprintf(format, args);
+  va_end(args);
+  return count;
+}
+
+auto uart_vprintf(const char *format, va_list args) -> int {
+  if (format == nullptr) {
+    return 0;
+  }
+
+  int count = 0;
+  const char *p = format;
+
+  while (*p != '\0') {
+    if (*p != '%') {
+      uart_putc(*p);
+      ++count;
+      ++p;
+      continue;
+    }
+
+    ++p;  // skip '%'
+
+    // 解析宽度和零填充
+    bool zero_pad = false;
+    int width = 0;
+
+    if (*p == '%') {
+      uart_putc('%');
+      ++count;
+      ++p;
+      continue;
+    }
+
+    if (*p == '0') {
+      zero_pad = true;
+      ++p;
+    }
+
+    while (*p >= '0' && *p <= '9') {
+      width = width * 10 + (*p - '0');
+      ++p;
+    }
+
+    // 支持 'l' 和 'll' 长度修饰符
+    int long_count = 0;
+    while (*p == 'l') {
+      ++long_count;
+      ++p;
+    }
+
+    switch (*p) {
+      case 's': {
+        const char *s = va_arg(args, const char *);
+        if (s == nullptr) {
+          s = "(null)";
+        }
+        uart_puts(s);
+        // 简化计数
+        while (*s != '\0') {
+          ++count;
+          ++s;
+        }
+        break;
+      }
+      case 'd': {
+        int64_t val;
+        if (long_count >= 2) {
+          val = va_arg(args, int64_t);
+        } else if (long_count == 1) {
+          val = va_arg(args, long);
+        } else {
+          val = va_arg(args, int);
+        }
+        if (val < 0) {
+          uart_putc('-');
+          ++count;
+          val = -val;
+        }
+        uart_put_dec(static_cast<uint64_t>(val));
+        break;
+      }
+      case 'u': {
+        uint64_t val;
+        if (long_count >= 2) {
+          val = va_arg(args, uint64_t);
+        } else if (long_count == 1) {
+          val = va_arg(args, unsigned long);
+        } else {
+          val = va_arg(args, unsigned int);
+        }
+        uart_put_dec(val);
+        break;
+      }
+      case 'x': {
+        uint64_t val;
+        if (long_count >= 2) {
+          val = va_arg(args, uint64_t);
+        } else if (long_count == 1) {
+          val = va_arg(args, unsigned long);
+        } else {
+          val = va_arg(args, unsigned int);
+        }
+        if (zero_pad && width > 0) {
+          uart_put_hex_padded(val, width);
+        } else {
+          // 无填充：找到最高非零 nibble
+          if (val == 0) {
+            uart_putc('0');
+            ++count;
+          } else {
+            uart_put_hex_padded(val, 16);
+          }
+        }
+        break;
+      }
+      case 'p': {
+        auto val = reinterpret_cast<uint64_t>(va_arg(args, void *));
+        uart_puts("0x");
+        count += 2;
+        uart_put_hex_padded(val, 16);
+        break;
+      }
+      case 'c': {
+        char c = static_cast<char>(va_arg(args, int));
+        uart_putc(c);
+        ++count;
+        break;
+      }
+      default:
+        // 未知格式，原样输出
+        uart_putc('%');
+        uart_putc(*p);
+        count += 2;
+        break;
+    }
+
+    ++p;
+  }
+
+  return count;
 }
 
 auto uart_getc() -> int {

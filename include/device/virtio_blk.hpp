@@ -80,7 +80,7 @@ struct BlkConfig {
     uint8_t heads;
     /// 每磁道扇区数
     uint8_t sectors;
-  } geometry;
+  } __attribute__((packed)) geometry;
 
   /// 块大小（字节），用于性能优化（如果 VIRTIO_BLK_F_BLK_SIZE 被协商）
   uint32_t blk_size;
@@ -95,7 +95,7 @@ struct BlkConfig {
     uint16_t min_io_size;
     /// 建议的最优 I/O 大小（块数）
     uint32_t opt_io_size;
-  } topology;
+  } __attribute__((packed)) topology;
 
   /// 缓存模式：0=直写(writethrough)，1=回写(writeback)
   /// （如果 VIRTIO_BLK_F_CONFIG_WCE 被协商）
@@ -395,6 +395,7 @@ class VirtioBlk : public Logger<LogFunc> {
   [[nodiscard]] auto Write(uint64_t sector, const uint8_t* data,
                            uint8_t* status_out, BlkReqHeader* header)
       -> Expected<void> {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
     return DoRequest(ReqType::kOut, sector, const_cast<uint8_t*>(data),
                      status_out, header);
   }
@@ -422,11 +423,16 @@ class VirtioBlk : public Logger<LogFunc> {
       auto elem = *result;
       uint16_t head = static_cast<uint16_t>(elem.id);
 
-      // 释放描述符链：header -> data -> status
+      // 释放描述符链：遍历 kDescFNext 标志释放链上所有描述符
       uint16_t idx = head;
-      for (int i = 0; i < 3; ++i) {
+      while (true) {
         uint16_t next = vq_.GetDesc(idx).next;
+        bool has_next =
+            (vq_.GetDesc(idx).flags & SplitVirtqueue::kDescFNext) != 0;
         vq_.FreeDesc(idx);
+        if (!has_next) {
+          break;
+        }
         idx = next;
       }
 

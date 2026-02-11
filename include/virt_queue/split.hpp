@@ -278,6 +278,8 @@ class SplitVirtqueue {
     for (uint16_t i = 0; i < queue_size; ++i) {
       desc_[i].next = static_cast<uint16_t>(i + 1);
     }
+    // 末尾描述符使用 sentinel 值，避免越界索引
+    desc_[queue_size - 1].next = 0xFFFF;
     free_head_ = 0;
     num_free_ = queue_size;
     last_used_idx_ = 0;

@@ -14,6 +14,7 @@
 
 #include "device/virtio_blk.hpp"
 
+#include <cstdarg>
 #include <cstdint>
 
 #include "test.h"
@@ -26,9 +27,12 @@ namespace {
 struct BlkTestLogger {
   auto operator()(const char* format, ...) const -> int {
     uart_puts("[BLK] ");
-    uart_puts(format);
+    va_list ap;
+    va_start(ap, format);
+    int ret = uart_vprintf(format, ap);
+    va_end(ap);
     uart_puts("\n");
-    return 0;
+    return ret;
   }
 };
 

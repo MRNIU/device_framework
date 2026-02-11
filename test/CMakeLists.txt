@@ -69,7 +69,8 @@ ADD_CUSTOM_TARGET (
     COMMAND
         qemu-system-riscv64 -nographic -serial stdio -monitor
         telnet::2333,server,nowait -machine virt -kernel
-        $<TARGET_FILE:${PROJECT_NAME}> -m 128M
+        $<TARGET_FILE:${PROJECT_NAME}> -m 128M -global
+        virtio-mmio.force-legacy=false
         # VirtIO 块设备 (块存储)
         -drive
         file=${CMAKE_BINARY_DIR}/images/test.img,if=none,format=raw,id=hd0
