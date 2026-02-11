@@ -416,12 +416,22 @@ class BlkRequest;
  * @note 当前实现仅支持单队列模式
  * @note 所有 DMA 缓冲区必须位于物理连续内存
  */
+/**
+ * @brief VirtioBlk 设备驱动类
+ *
+ * @tparam LogFunc 日志函数对象类型（必须与 Transport 的 LogFunc 一致）
+ *
+ * @note 继承自 Logger<LogFunc> 以支持设备层日志
+ */
 template <class LogFunc = std::nullptr_t>
-class VirtioBlk {
+class VirtioBlk : public Logger<LogFunc> {
   // BlkRequest 需要访问 do_request()
   friend class BlkRequest;
 
  public:
+  /// Transport 类型别名（确保类型一致）
+  using TransportType = Transport<LogFunc>;
+
   /**
    * @brief 创建并初始化块设备
    * @see virtio-v1.2#3.1 Device Initialization
@@ -437,7 +447,7 @@ class VirtioBlk {
    * 8. 执行设备特定设置（配置 virtqueue）
    * 9. 设置 DRIVER_OK 状态位
    *
-   * @param transport 传输层实例（需已通过 create 验证）
+   * @param transport 传输层实例（类型必须为 Transport<LogFunc>&）
    * @param vq 预创建的 SplitVirtqueue（单队列）
    * @param platform 平台操作接口（提供物理地址转换和内存屏障）
    * @param driver_features 驱动希望启用的额外特性位（默认仅 VERSION_1）
@@ -445,7 +455,7 @@ class VirtioBlk {
    * @retval Error::kFeatureNegotiationFailed 特性协商失败（设备不支持
    * VERSION_1）
    */
-  [[nodiscard]] static auto create(Transport& transport, SplitVirtqueue& vq,
+  [[nodiscard]] static auto create(TransportType& transport, SplitVirtqueue& vq,
                                    const PlatformOps& platform,
                                    uint64_t driver_features = 0)
       -> Expected<VirtioBlk> {
@@ -453,10 +463,10 @@ class VirtioBlk {
     transport.Reset();
 
     // 2. 设置 ACKNOWLEDGE 状态
-    transport.SetStatus(Transport::kAcknowledge);
+    transport.SetStatus(TransportType::kAcknowledge);
 
     // 3. 设置 DRIVER 状态
-    transport.SetStatus(Transport::kAcknowledge | Transport::kDriver);
+    transport.SetStatus(TransportType::kAcknowledge | TransportType::kDriver);
 
     // 4. 特性协商
     uint64_t device_features = transport.GetDeviceFeatures();
@@ -473,12 +483,12 @@ class VirtioBlk {
     transport.SetDriverFeatures(negotiated);
 
     // 5. 设置 FEATURES_OK
-    transport.SetStatus(Transport::kAcknowledge | Transport::kDriver |
-                        Transport::kFeaturesOk);
+    transport.SetStatus(TransportType::kAcknowledge | TransportType::kDriver |
+                        TransportType::kFeaturesOk);
 
     // 6. 验证 FEATURES_OK
-    if ((transport.GetStatus() & TransportImpl::kFeaturesOk) == 0) {
-      transport.SetStatus(TransportImpl::kFailed);
+    if ((transport.GetStatus() & TransportType::kFeaturesOk) == 0) {
+      transport.SetStatus(TransportType::kFailed);
       return std::unexpected(Error{ErrorCode::kFeatureNegotiationFailed});
     }
 
@@ -491,8 +501,8 @@ class VirtioBlk {
     transport.SetQueueReady(queue_idx, true);
 
     // 8. 设置 DRIVER_OK
-    transport.SetStatus(Transport::kAcknowledge | Transport::kDriver |
-                        Transport::kFeaturesOk | Transport::kDriverOk);
+    transport.SetStatus(TransportType::kAcknowledge | TransportType::kDriver |
+                        TransportType::kFeaturesOk | TransportType::kDriverOk);
 
     return VirtioBlk(transport, vq, platform, negotiated);
   }
@@ -697,7 +707,7 @@ class VirtioBlk {
    *
    * @return 传输层对象引用
    */
-  [[nodiscard]] auto transport() -> Transport& { return transport_; }
+  [[nodiscard]] auto transport() -> TransportType& { return transport_; }
 
   /**
    * @brief 获取 virtqueue 引用
@@ -717,12 +727,20 @@ class VirtioBlk {
    * @param platform 平台操作接口引用
    * @param features 协商后的特性位
    */
-  VirtioBlk(Transport& transport, SplitVirtqueue& vq,
+  VirtioBlk(TransportType& transport, SplitVirtqueue& vq,
             const PlatformOps& platform, uint64_t features)
       : transport_(transport),
         vq_(vq),
         platform_(platform),
         negotiated_features_(features) {}
+
+  /**
+   * @brief 使用 Logger 基类的 Log 方法
+   *
+   * 提供设备层日志功能，格式示例：
+   * this->Log("[VirtioBlk] Read sector %llu", sector);
+   */
+  using Logger<LogFunc>::Log;
 
   /**
    * @brief 内部请求提交函数
@@ -815,7 +833,7 @@ class VirtioBlk {
   }
 
   /// 传输层引用
-  TransportImpl& transport_;
+  TransportType& transport_;
   /// Virtqueue 引用
   SplitVirtqueue& vq_;
   /// 平台操作接口引用

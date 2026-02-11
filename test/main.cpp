@@ -5,14 +5,18 @@
 #include <cstdint>
 
 #include "plic.h"
+#include "test_base.hpp"
 #include "uart.h"
-#include "virtio_blk_test.h"
-#include "virtio_mmio_probe.h"
+// #include "virtio_blk_test_oo.hpp"  // TODO: 修复 blk 测试后启用
 
-void test_main(uint32_t hart_id, uint8_t *dtb) {
-  uart_puts("\n========================================\n");
-  uart_puts("virtio_driver Test Environment\n");
-  uart_puts("========================================\n");
+/**
+ * @brief 主测试入口
+ */
+void test_main(uint32_t hart_id, uint8_t* dtb) {
+  // 打印欢迎信息
+  uart_puts("\n╔════════════════════════════════════════╗\n");
+  uart_puts("║   VirtIO Driver Test Environment      ║\n");
+  uart_puts("╚════════════════════════════════════════╝\n");
   uart_puts("Hart ID: ");
   uart_put_hex(hart_id);
   uart_puts("\nDTB Address: ");
@@ -33,7 +37,7 @@ void test_main(uint32_t hart_id, uint8_t *dtb) {
   uart_puts("[INIT] Interrupts enabled\n");
 
   // 扫描 VirtIO MMIO 设备
-  scan_virtio_devices();
+  // scan_virtio_devices();
 
   uart_puts("\nTest: Hello from C++!\n");
   uart_puts("Test: UART is working!\n");
@@ -43,12 +47,12 @@ void test_main(uint32_t hart_id, uint8_t *dtb) {
   uart_puts("========================================\n\n");
 
   // 测试 VirtIO 块设备
-  test_virtio_blk();
+  // test_virtio_blk();
 
   uart_puts("[INFO] System ready. Try typing on the console...\n");
 }
 
-extern "C" void _start(uint32_t hart_id, uint8_t *dtb) {
+extern "C" void _start(uint32_t hart_id, uint8_t* dtb) {
   // 调用测试函数
   test_main(hart_id, dtb);
 

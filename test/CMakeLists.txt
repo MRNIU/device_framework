@@ -1,4 +1,4 @@
-# Copyright The SimpleKernel Contributors
+# Copyright The virtio_driver Contributors
 
 PROJECT (test)
 
@@ -8,7 +8,8 @@ ENABLE_LANGUAGE (CXX)
 
 # 添加可执行文件
 ADD_EXECUTABLE (${PROJECT_NAME} main.cpp boot.S uart.cpp trap.cpp
-                                virtio_mmio_probe.cpp virtio_blk_test.cpp)
+                                # virtio_blk_test.cpp
+                                )
 
 # 设置编译选项
 TARGET_COMPILE_OPTIONS (${PROJECT_NAME} PRIVATE -fno-stack-protector

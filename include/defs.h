@@ -93,18 +93,58 @@ enum class ReservedFeature : uint64_t {
   kRingReset = 1ULL << 40,
 };
 
+/**
+ * @brief 日志功能基类
+ *
+ * 提供类 printf 的日志打印接口，支持零开销可选日志。
+ * 可在 transport 层、device 层等多个层次使用。
+ *
+ * @tparam LogFunc 日志函数对象类型
+ *   - 默认为 std::nullptr_t（完全禁用日志，无代码生成）
+ *   - 必须可默认构造（无状态函数对象）
+ *   - 必须重载 operator()(const char* format, Args... args)
+ *
+ * @example 使用示例
+ * @code
+ * // 定义日志函数对象
+ * struct UartLogger {
+ *     void operator()(const char* format, auto&&... args) const {
+ *         uart_printf(format, args...);
+ *     }
+ * };
+ *
+ * // 在 Transport 层使用
+ * using MyTransport = virtio_driver::MmioTransport<UartLogger>;
+ * auto transport = MyTransport(0x10001000);
+ *
+ * // 在 Device 层使用（LogFunc 类型必须与 Transport 一致）
+ * using MyBlkDev = virtio_driver::blk::VirtioBlk<UartLogger>;
+ * auto blk = MyBlkDev::create(transport, vq, platform);
+ *
+ * // 禁用日志（零开销）
+ * using SilentTransport = virtio_driver::MmioTransport<>;
+ * @endcode
+ *
+ * @note 当 LogFunc = std::nullptr_t 时，Log() 调用在编译期被完全优化掉
+ * @note LogFunc 应为轻量级无状态对象，每次调用都临时构造
+ */
 template <class LogFunc = std::nullptr_t>
 class Logger {
  public:
   /**
    * @brief 记录日志信息
-   * @param  format          格式化字符串
-   * @param  args            可变参数
+   *
+   * @tparam Args 可变参数类型
+   * @param format 格式化字符串（类 printf 格式）
+   * @param args 可变参数列表
+   *
+   * @note 使用 std::forward 确保参数完美转发
+   * @note 使用 if constexpr 确保零开销（日志禁用时无代码生成）
    */
   template <typename... Args>
   void Log(const char* format, Args&&... args) const {
     if constexpr (!std::is_same_v<LogFunc, std::nullptr_t>) {
-      LogFunc{}(format, args...);
+      LogFunc(format, std::forward<Args>(args)...);
     }
   }
 };

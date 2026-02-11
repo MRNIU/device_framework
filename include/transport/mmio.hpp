@@ -110,34 +110,30 @@ class MmioTransport final : public Transport<LogFunc> {
    * @param base MMIO 寄存器基地址
    */
   explicit MmioTransport(uint64_t base) : base_(base) {
-    // 验证魔数 0x74726976 ("virt")
-    // @see virtio-v1.2#4.2.2.2
-    uint32_t magic = Read<uint32_t>(MmioReg::kMagicValue);
+    // 验证魔数
+    auto magic = Read<uint32_t>(MmioReg::kMagicValue);
     if (magic != kMmioMagicValue) {
-      Log("MMIO magic value mismatch: expected 0x%08x, got 0x%08x",
+      Transport<LogFunc>::Log(
+          "MMIO magic value mismatch: expected 0x%08x, got 0x%08x",
           kMmioMagicValue, magic);
       return;
     }
 
-    // 验证版本号（必须为 2，即 virtio modern）
-    // @see virtio-v1.2#4.2.2.2
-    uint32_t version = Read<uint32_t>(MmioReg::kVersion);
+    // 验证版本号
+    auto version = Read<uint32_t>(MmioReg::kVersion);
     if (version != kMmioVersion) {
-      Log("MMIO version mismatch: expected %u, got %u", kMmioVersion, version);
+      Transport<LogFunc>::Log("MMIO version mismatch: expected %u, got %u",
+                              kMmioVersion, version);
       return;
     }
 
     // 设备 ID 为 0 表示不存在设备
-    uint32_t device_id = Read<uint32_t>(MmioReg::kDeviceId);
+    auto device_id = Read<uint32_t>(MmioReg::kDeviceId);
     if (device_id == 0) {
-      Log("MMIO device ID is 0, no device found");
+      Transport<LogFunc>::Log("MMIO device ID is 0, no device found");
       return;
     }
   }
-
-  // ========================================================================
-  // Transport 接口实现
-  // ========================================================================
 
   [[nodiscard]] auto GetDeviceId() const -> uint32_t override {
     return Read<uint32_t>(MmioReg::kDeviceId);
