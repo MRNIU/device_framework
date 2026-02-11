@@ -244,7 +244,8 @@ class SplitVirtqueue {
    */
   SplitVirtqueue(void* dma_buf, uint64_t phys_base, uint16_t queue_size,
                  bool event_idx = true)
-      : queue_size_(queue_size), event_idx_enabled_(event_idx),
+      : queue_size_(queue_size),
+        event_idx_enabled_(event_idx),
         phys_base_(phys_base) {
     if (dma_buf == nullptr || !IsPowerOfTwo(queue_size)) {
       return;
@@ -259,8 +260,7 @@ class SplitVirtqueue {
 
     desc_offset_ = 0;
     avail_offset_ = AlignUp(desc_total, Avail::kAlign);
-    size_t used_total =
-        sizeof(uint16_t) * 2 + sizeof(UsedElem) * queue_size;
+    size_t used_total = sizeof(uint16_t) * 2 + sizeof(UsedElem) * queue_size;
     if (event_idx) {
       used_total += sizeof(uint16_t);
     }
