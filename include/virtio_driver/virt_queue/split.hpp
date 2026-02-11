@@ -679,6 +679,38 @@ class SplitVirtqueue final
     return event_idx_enabled_ ? used_->avail_event(queue_size_) : nullptr;
   }
 
+  /**
+   * @brief 检查是否启用了 VIRTIO_F_EVENT_IDX 特性
+   *
+   * @return true 表示已启用 Event Index 通知抑制
+   * @see virtio-v1.2#2.7.10 Available Buffer Notification Suppression
+   */
+  [[nodiscard]] auto EventIdxEnabled() const -> bool {
+    return event_idx_enabled_;
+  }
+
+  /**
+   * @brief 获取当前 Available Ring 索引
+   *
+   * 返回 avail->idx，即下一个描述符将被放置的位置。
+   * 用于 Event Index 通知抑制中判断是否需要通知设备。
+   *
+   * @return 当前 avail->idx 值
+   * @see virtio-v1.2#2.7.6 The Virtqueue Available Ring
+   */
+  [[nodiscard]] auto AvailIdx() const -> uint16_t { return avail_->idx; }
+
+  /**
+   * @brief 获取驱动程序上次处理到的 Used Ring 索引
+   *
+   * 用于 Event Index 机制中设置 avail->used_event，
+   * 告知设备在此索引之后再发送中断。
+   *
+   * @return 上次处理到的 used ring 索引
+   * @see virtio-v1.2#2.7.10 Available Buffer Notification Suppression
+   */
+  [[nodiscard]] auto LastUsedIdx() const -> uint16_t { return last_used_idx_; }
+
   /// @name 构造/析构函数
   /// @{
   SplitVirtqueue(const SplitVirtqueue&) = delete;

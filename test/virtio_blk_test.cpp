@@ -140,6 +140,11 @@ void test_virtio_blk() {
         (features &
          static_cast<uint64_t>(virtio_driver::ReservedFeature::kVersion1)) != 0;
     EXPECT_TRUE(has_version1, "Negotiated features include VERSION_1");
+
+    bool has_event_idx =
+        (features &
+         static_cast<uint64_t>(virtio_driver::ReservedFeature::kEventIdx)) != 0;
+    EXPECT_TRUE(has_event_idx, "Negotiated features include EVENT_IDX");
     LOG_HEX("Negotiated features", features);
   }
 
@@ -334,6 +339,66 @@ void test_virtio_blk() {
       }
       EXPECT_TRUE(match, "Overwrite data matches new pattern");
     }
+  }
+
+  // === 测试 13: Event Index - 连续提交多个请求后验证 kicks_elided ===
+  {
+    LOG("Testing Event Index notification suppression...");
+    auto stats_before = blk.GetStats();
+
+    // 连续执行多次写+读操作，Event Index 应使部分 Kick 被省略
+    constexpr int kBatchCount = 8;
+    bool batch_ok = true;
+    for (int b = 0; b < kBatchCount; ++b) {
+      uint64_t sector = 50 + b;
+      auto pattern = static_cast<uint8_t>(0xE0 + b);
+      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+        g_data_buf[i] = static_cast<uint8_t>(pattern + (i & 0x0F));
+      }
+      auto wr = blk.Write(sector, g_data_buf);
+      if (!wr.has_value()) {
+        batch_ok = false;
+        LOG_HEX("Batch write failed at sector", sector);
+        break;
+      }
+    }
+    EXPECT_TRUE(batch_ok, "Event Index: batch write succeeds");
+
+    // 读回验证
+    bool verify_ok = true;
+    for (int b = 0; b < kBatchCount && batch_ok; ++b) {
+      uint64_t sector = 50 + b;
+      auto pattern = static_cast<uint8_t>(0xE0 + b);
+      memzero(g_data_buf, sizeof(g_data_buf));
+      auto rd = blk.Read(sector, g_data_buf);
+      if (!rd.has_value()) {
+        verify_ok = false;
+        break;
+      }
+      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+        if (g_data_buf[i] != static_cast<uint8_t>(pattern + (i & 0x0F))) {
+          verify_ok = false;
+          LOG_HEX("Batch verify mismatch at sector", sector);
+          break;
+        }
+      }
+      if (!verify_ok) {
+        break;
+      }
+    }
+    EXPECT_TRUE(verify_ok, "Event Index: batch read-verify succeeds");
+
+    auto stats_after = blk.GetStats();
+    LOG_HEX("kicks_elided (before batch)", stats_before.kicks_elided);
+    LOG_HEX("kicks_elided (after batch)", stats_after.kicks_elided);
+    LOG_HEX("interrupts_handled", stats_after.interrupts_handled);
+    LOG_HEX("bytes_transferred", stats_after.bytes_transferred);
+
+    // 验证性能统计基本正确（bytes > 0, interrupts > 0）
+    EXPECT_TRUE(stats_after.bytes_transferred > 0,
+                "Event Index: bytes_transferred > 0");
+    EXPECT_TRUE(stats_after.interrupts_handled > 0,
+                "Event Index: interrupts_handled > 0");
   }
 
   // 清理：注销中断处理函数

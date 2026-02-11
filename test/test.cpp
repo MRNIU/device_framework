@@ -4,7 +4,30 @@
 
 #include "test.h"
 
+#include <cstddef>
+
 #include "uart.h"
+
+// Freestanding 环境需要的编译器内建函数
+// GCC/Clang 优化器在处理大型结构体拷贝时可能生成 memcpy/memset 调用
+extern "C" {
+void* memcpy(void* dest, const void* src, size_t n) {
+  auto* d = static_cast<uint8_t*>(dest);
+  const auto* s = static_cast<const uint8_t*>(src);
+  for (size_t i = 0; i < n; ++i) {
+    d[i] = s[i];
+  }
+  return dest;
+}
+
+void* memset(void* dest, int c, size_t n) {
+  auto* d = static_cast<uint8_t*>(dest);
+  for (size_t i = 0; i < n; ++i) {
+    d[i] = static_cast<uint8_t>(c);
+  }
+  return dest;
+}
+}
 
 // 全局测试统计
 TestStats g_test_stats = {0, 0, 0};

@@ -351,8 +351,9 @@ class VirtioBlk {
   [[nodiscard]] static constexpr auto GetRequiredVqMemSize(uint16_t queue_count,
                                                            uint32_t queue_size)
       -> std::pair<size_t, size_t> {
+    // 始终按 event_idx=true 分配，因为特性协商在分配之后
     size_t per_queue =
-        VirtqueueT<Traits>::CalcSize(static_cast<uint16_t>(queue_size), false);
+        VirtqueueT<Traits>::CalcSize(static_cast<uint16_t>(queue_size), true);
     return {per_queue * queue_count, 4096};
   }
 
@@ -364,7 +365,8 @@ class VirtioBlk {
    */
   [[nodiscard]] static constexpr auto CalcDmaSize(uint16_t queue_size = 128)
       -> size_t {
-    return VirtqueueT<Traits>::CalcSize(queue_size, false);
+    // 始终按 event_idx=true 分配，确保空间充足
+    return VirtqueueT<Traits>::CalcSize(queue_size, true);
   }
 
   /**
@@ -403,19 +405,12 @@ class VirtioBlk {
       return std::unexpected(Error{ErrorCode::kTransportNotInitialized});
     }
 
-    // 2. 创建 Virtqueue
-    uint64_t dma_phys = Traits::VirtToPhys(vq_dma_buf);
-    VirtqueueT<Traits> vq(vq_dma_buf, dma_phys,
-                          static_cast<uint16_t>(queue_size), false);
-    if (!vq.IsValid()) {
-      return std::unexpected(Error{ErrorCode::kInvalidArgument});
-    }
-
-    // 3. 设备初始化序列
+    // 2. 设备初始化序列（特性协商需在 Virtqueue 构造之前完成）
     DeviceInitializer<Traits, TransportT<Traits>> initializer(transport);
 
     uint64_t wanted_features =
-        static_cast<uint64_t>(ReservedFeature::kVersion1) | driver_features;
+        static_cast<uint64_t>(ReservedFeature::kVersion1) |
+        static_cast<uint64_t>(ReservedFeature::kEventIdx) | driver_features;
     auto negotiated_result = initializer.Init(wanted_features);
     if (!negotiated_result) {
       return std::unexpected(negotiated_result.error());
@@ -426,6 +421,22 @@ class VirtioBlk {
     if ((negotiated & static_cast<uint64_t>(ReservedFeature::kVersion1)) == 0) {
       Traits::Log("Device does not support VERSION_1 (modern mode)");
       return std::unexpected(Error{ErrorCode::kFeatureNegotiationFailed});
+    }
+
+    // 根据协商结果决定是否启用 Event Index
+    bool event_idx =
+        (negotiated & static_cast<uint64_t>(ReservedFeature::kEventIdx)) != 0;
+    if (event_idx) {
+      Traits::Log(
+          "VIRTIO_F_EVENT_IDX negotiated, notification suppression enabled");
+    }
+
+    // 3. 创建 Virtqueue（在特性协商之后，根据 event_idx 结果构造）
+    uint64_t dma_phys = Traits::VirtToPhys(vq_dma_buf);
+    VirtqueueT<Traits> vq(vq_dma_buf, dma_phys,
+                          static_cast<uint16_t>(queue_size), event_idx);
+    if (!vq.IsValid()) {
+      return std::unexpected(Error{ErrorCode::kInvalidArgument});
     }
 
     // 4. 配置队列
@@ -507,7 +518,25 @@ class VirtioBlk {
     }
     // 写屏障：确保 Available Ring 更新对设备可见
     Traits::Wmb();
-    transport_.NotifyQueue(queue_index);
+
+    if (vq_.EventIdxEnabled()) {
+      // Event Index 通知抑制：仅当设备期望的 avail idx 被超过时才通知
+      auto* avail_event_ptr = vq_.UsedAvailEvent();
+      if (avail_event_ptr != nullptr) {
+        uint16_t avail_event = *avail_event_ptr;
+        uint16_t new_idx = vq_.AvailIdx();
+        if (VringNeedEvent(avail_event, new_idx, old_avail_idx_)) {
+          transport_.NotifyQueue(queue_index);
+        } else {
+          stats_.kicks_elided++;
+        }
+        old_avail_idx_ = new_idx;
+      } else {
+        transport_.NotifyQueue(queue_index);
+      }
+    } else {
+      transport_.NotifyQueue(queue_index);
+    }
   }
 
   /**
@@ -533,6 +562,9 @@ class VirtioBlk {
 
     // 处理完成的请求
     ProcessCompletions(static_cast<CompletionCallback&&>(on_complete));
+
+    // 更新 avail->used_event 告知设备下次何时发送中断
+    UpdateUsedEvent();
   }
 
   /**
@@ -549,8 +581,13 @@ class VirtioBlk {
     if (status != 0) {
       transport_.AckInterrupt(status);
     }
+    stats_.interrupts_handled++;
+    stats_.interrupts_handled++;
     request_completed_ = true;
     Traits::Wmb();
+
+    // 更新 avail->used_event 告知设备下次何时发送中断
+    UpdateUsedEvent();
   }
 
   // ======== 同步便捷方法 ========
@@ -603,6 +640,9 @@ class VirtioBlk {
       done = true;
       result = status;
     });
+
+    // 更新 used_event 确保设备继续发送中断
+    UpdateUsedEvent();
 
     if (!done) {
       return std::unexpected(Error{ErrorCode::kTimeout});
@@ -662,6 +702,9 @@ class VirtioBlk {
       done = true;
       result = status;
     });
+
+    // 更新 used_event 确保设备继续发送中断
+    UpdateUsedEvent();
 
     if (!done) {
       return std::unexpected(Error{ErrorCode::kTimeout});
@@ -801,6 +844,7 @@ class VirtioBlk {
         vq_(std::move(other.vq_)),
         negotiated_features_(other.negotiated_features_),
         stats_(other.stats_),
+        old_avail_idx_(other.old_avail_idx_),
         request_completed_(other.request_completed_) {
     for (uint16_t i = 0; i < kMaxInflight; ++i) {
       slots_[i].header = other.slots_[i].header;
@@ -816,6 +860,7 @@ class VirtioBlk {
       vq_ = std::move(other.vq_);
       negotiated_features_ = other.negotiated_features_;
       stats_ = other.stats_;
+      old_avail_idx_ = other.old_avail_idx_;
       request_completed_ = other.request_completed_;
       for (uint16_t i = 0; i < kMaxInflight; ++i) {
         slots_[i].header = other.slots_[i].header;
@@ -863,6 +908,7 @@ class VirtioBlk {
         vq_(std::move(vq)),
         negotiated_features_(features),
         stats_{},
+        old_avail_idx_(0),
         request_completed_(false) {
     for (uint16_t i = 0; i < kMaxInflight; ++i) {
       slots_[i].in_use = false;
@@ -1068,6 +1114,42 @@ class VirtioBlk {
     }
   }
 
+  /**
+   * @brief 判断是否需要发送通知（处理 wrap-around）
+   *
+   * 基于 virtio 规范中的 vring_need_event 算法：检查 event_idx
+   * 是否落在 (old, new] 区间内（含 uint16_t 回绕处理）。
+   *
+   * @param event_idx 设备/驱动期望的通知阈值
+   * @param new_idx 当前索引
+   * @param old_idx 上次通知时的索引
+   * @return true 表示需要发送通知
+   * @see virtio-v1.2#2.7.10 Available Buffer Notification Suppression
+   */
+  [[nodiscard]] static auto VringNeedEvent(uint16_t event_idx, uint16_t new_idx,
+                                           uint16_t old_idx) -> bool {
+    return static_cast<uint16_t>(new_idx - event_idx - 1) <
+           static_cast<uint16_t>(new_idx - old_idx);
+  }
+
+  /**
+   * @brief 更新 avail->used_event 字段
+   *
+   * 在处理完 Used Ring 后调用，告知设备下次在此索引之后再发送中断。
+   * 仅在协商了 VIRTIO_F_EVENT_IDX 时生效。
+   *
+   * @see virtio-v1.2#2.7.10 Available Buffer Notification Suppression
+   */
+  auto UpdateUsedEvent() -> void {
+    if (vq_.EventIdxEnabled()) {
+      auto* used_event_ptr = vq_.AvailUsedEvent();
+      if (used_event_ptr != nullptr) {
+        *used_event_ptr = vq_.LastUsedIdx();
+        Traits::Wmb();
+      }
+    }
+  }
+
   /// 传输层实例
   TransportT<Traits> transport_;
   /// Virtqueue 实例（当前支持单队列）
@@ -1078,6 +1160,8 @@ class VirtioBlk {
   VirtioStats stats_;
   /// 请求槽池（用于跟踪 in-flight 异步请求）
   RequestSlot slots_[kMaxInflight];
+  /// 上次 Kick 时的 avail idx（用于 Event Index 通知抑制）
+  uint16_t old_avail_idx_;
   /// 请求完成标志（由简化版 HandleInterrupt 在中断上下文中设置）
   volatile bool request_completed_;
 };
