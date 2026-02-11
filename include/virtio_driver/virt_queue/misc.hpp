@@ -2,8 +2,8 @@
  * @copyright Copyright The virtio_driver Contributors
  */
 
-#ifndef VIRTIO_DRIVER_INCLUDE_VIRT_QUEUE_MISC_HPP_
-#define VIRTIO_DRIVER_INCLUDE_VIRT_QUEUE_MISC_HPP_
+#ifndef VIRTIO_DRIVER_VIRT_QUEUE_MISC_HPP_
+#define VIRTIO_DRIVER_VIRT_QUEUE_MISC_HPP_
 
 #include <cstddef>
 #include <cstdint>
@@ -51,4 +51,4 @@ namespace virtio_driver {
 
 }  // namespace virtio_driver
 
-#endif /* VIRTIO_DRIVER_INCLUDE_VIRT_QUEUE_MISC_HPP_ */
+#endif /* VIRTIO_DRIVER_VIRT_QUEUE_MISC_HPP_ */

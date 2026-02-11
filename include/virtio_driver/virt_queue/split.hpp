@@ -2,11 +2,11 @@
  * @copyright Copyright The virtio_driver Contributors
  */
 
-#ifndef VIRTIO_DRIVER_INCLUDE_VIRT_QUEUE_SPLIT_HPP_
-#define VIRTIO_DRIVER_INCLUDE_VIRT_QUEUE_SPLIT_HPP_
+#ifndef VIRTIO_DRIVER_VIRT_QUEUE_SPLIT_HPP_
+#define VIRTIO_DRIVER_VIRT_QUEUE_SPLIT_HPP_
 
-#include "expected.hpp"
-#include "misc.hpp"
+#include "virtio_driver/expected.hpp"
+#include "virtio_driver/virt_queue/misc.hpp"
 
 namespace virtio_driver {
 
@@ -579,4 +579,4 @@ class SplitVirtqueue {
 
 }  // namespace virtio_driver
 
-#endif /* VIRTIO_DRIVER_INCLUDE_VIRT_QUEUE_SPLIT_HPP_ */
+#endif /* VIRTIO_DRIVER_VIRT_QUEUE_SPLIT_HPP_ */

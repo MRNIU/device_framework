@@ -5,15 +5,17 @@
  * @see virtio-v1.2#5.2 Block Device
  */
 
-#ifndef VIRTIO_DRIVER_INCLUDE_DEVICE_VIRTIO_BLK_HPP_
-#define VIRTIO_DRIVER_INCLUDE_DEVICE_VIRTIO_BLK_HPP_
+#ifndef VIRTIO_DRIVER_DEVICE_VIRTIO_BLK_HPP_
+#define VIRTIO_DRIVER_DEVICE_VIRTIO_BLK_HPP_
 
-#include "defs.h"
-#include "device/device_initializer.hpp"
-#include "expected.hpp"
-#include "platform.h"
-#include "transport/transport.hpp"
-#include "virt_queue/split.hpp"
+#include <atomic>
+
+#include "virtio_driver/defs.h"
+#include "virtio_driver/device/device_initializer.hpp"
+#include "virtio_driver/expected.hpp"
+#include "virtio_driver/platform.h"
+#include "virtio_driver/transport/transport.hpp"
+#include "virtio_driver/virt_queue/split.hpp"
 
 namespace virtio_driver::blk {
 
@@ -689,17 +691,13 @@ class VirtioBlk : public Logger<LogFunc> {
     d2->next = 0;
 
     // 内存屏障：确保描述符已写入内存
-    if (platform_.wmb) {
-      platform_.wmb();
-    }
+    std::atomic_thread_fence(std::memory_order_release);
 
     // 提交到 Available Ring
     vq_.Submit(desc0);
 
     // 内存屏障：确保 Available Ring 更新对设备可见
-    if (platform_.mb) {
-      platform_.mb();
-    }
+    std::atomic_thread_fence(std::memory_order_seq_cst);
 
     // 通知设备有新的可用缓冲区
     transport_.NotifyQueue(0);
@@ -719,4 +717,4 @@ class VirtioBlk : public Logger<LogFunc> {
 
 }  // namespace virtio_driver::blk
 
-#endif /* VIRTIO_DRIVER_INCLUDE_DEVICE_VIRTIO_BLK_HPP_ */
+#endif /* VIRTIO_DRIVER_DEVICE_VIRTIO_BLK_HPP_ */

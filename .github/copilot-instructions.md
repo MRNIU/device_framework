@@ -86,7 +86,7 @@ Transport 构造 → DeviceInitializer::Init(features) → SetupQueue() → Acti
 使用 `Expected<T>` = `std::expected<T, Error>`，错误码定义在 `expected.hpp` 的 `ErrorCode` 枚举中。
 
 ### 平台抽象
-用户必须实现 `PlatformOps` 结构中的函数指针（`alloc_pages` / `free_pages` / `virt_to_phys` / `mb` / `rmb` / `wmb` / `page_size`）。测试环境使用恒等映射 + RISC-V fence 指令。
+用户必须实现 `PlatformOps` 结构中的函数指针（`virt_to_phys`）。测试环境使用恒等映射 + RISC-V fence 指令。
 
 ## 编码规范
 

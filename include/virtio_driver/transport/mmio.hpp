@@ -2,11 +2,11 @@
  * @copyright Copyright The virtio_driver Contributors
  */
 
-#ifndef VIRTIO_DRIVER_INCLUDE_TRANSPORT_MMIO_HPP_
-#define VIRTIO_DRIVER_INCLUDE_TRANSPORT_MMIO_HPP_
+#ifndef VIRTIO_DRIVER_TRANSPORT_MMIO_HPP_
+#define VIRTIO_DRIVER_TRANSPORT_MMIO_HPP_
 
-#include "expected.hpp"
-#include "transport.hpp"
+#include "virtio_driver/expected.hpp"
+#include "virtio_driver/transport/transport.hpp"
 
 namespace virtio_driver {
 
@@ -438,4 +438,4 @@ class MmioTransport final : public Transport<LogFunc> {
 
 }  // namespace virtio_driver
 
-#endif /* VIRTIO_DRIVER_INCLUDE_TRANSPORT_MMIO_HPP_ */
+#endif /* VIRTIO_DRIVER_TRANSPORT_MMIO_HPP_ */

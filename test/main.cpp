@@ -4,7 +4,7 @@
 
 #include <cstdint>
 
-#include "device/virtio_blk.hpp"
+#include "virtio_driver/device/virtio_blk.hpp"
 #include "plic.h"
 #include "test.h"
 #include "uart.h"

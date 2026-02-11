@@ -2,12 +2,12 @@
  * @copyright Copyright The virtio_driver Contributors
  */
 
-#include "transport/mmio.hpp"
+#include "virtio_driver/transport/mmio.hpp"
 
 #include <cstdarg>
 #include <cstdint>
 
-#include "device/device_initializer.hpp"
+#include "virtio_driver/device/device_initializer.hpp"
 #include "test.h"
 #include "uart.h"
 

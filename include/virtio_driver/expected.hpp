@@ -2,8 +2,8 @@
  * @copyright Copyright The virtio_driver Contributors
  */
 
-#ifndef VIRTIO_DRIVER_INCLUDE_EXPECTED_HPP_
-#define VIRTIO_DRIVER_INCLUDE_EXPECTED_HPP_
+#ifndef VIRTIO_DRIVER_EXPECTED_HPP_
+#define VIRTIO_DRIVER_EXPECTED_HPP_
 
 #include <cstddef>
 #include <cstdint>
@@ -135,4 +135,4 @@ using Expected = std::expected<T, Error>;
 
 }  // namespace virtio_driver
 
-#endif /* VIRTIO_DRIVER_INCLUDE_EXPECTED_HPP_ */
+#endif /* VIRTIO_DRIVER_EXPECTED_HPP_ */

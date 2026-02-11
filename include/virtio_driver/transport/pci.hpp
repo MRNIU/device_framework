@@ -5,10 +5,10 @@
  * @see virtio-v1.2#4.1
  */
 
-#ifndef VIRTIO_DRIVER_INCLUDE_TRANSPORT_PCI_HPP_
-#define VIRTIO_DRIVER_INCLUDE_TRANSPORT_PCI_HPP_
+#ifndef VIRTIO_DRIVER_TRANSPORT_PCI_HPP_
+#define VIRTIO_DRIVER_TRANSPORT_PCI_HPP_
 
-#include "transport/transport.hpp"
+#include "virtio_driver/transport/transport.hpp"
 
 namespace virtio_driver {
 
@@ -77,4 +77,4 @@ class PciTransport final : public Transport<LogFunc> {
 
 }  // namespace virtio_driver
 
-#endif /* VIRTIO_DRIVER_INCLUDE_TRANSPORT_PCI_HPP_ */
+#endif /* VIRTIO_DRIVER_TRANSPORT_PCI_HPP_ */

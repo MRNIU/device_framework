@@ -12,14 +12,14 @@
  * 6. 发起读请求，验证数据一致性
  */
 
-#include "device/virtio_blk.hpp"
+#include "virtio_driver/device/virtio_blk.hpp"
 
 #include <cstdarg>
 #include <cstdint>
 
 #include "test.h"
-#include "transport/mmio.hpp"
 #include "uart.h"
+#include "virtio_driver/transport/mmio.hpp"
 
 namespace {
 
@@ -73,25 +73,9 @@ alignas(16) static uint8_t g_status;
 
 /// 平台操作接口（裸机实现：恒等映射，fence 屏障）
 virtio_driver::PlatformOps g_platform_ops = {
-    .alloc_pages = nullptr,
-    .free_pages = nullptr,
     .virt_to_phys = [](void* vaddr) -> uint64_t {
       return reinterpret_cast<uint64_t>(vaddr);
-    },
-    .mb =
-        []() {
-          asm volatile("fence iorw, iorw" ::: "memory");
-        },
-    .rmb =
-        []() {
-          asm volatile("fence ir, ir" ::: "memory");
-        },
-    .wmb =
-        []() {
-          asm volatile("fence ow, ow" ::: "memory");
-        },
-    .page_size = kPageSize,
-};
+    }};
 
 /// 简单的忙等待循环
 void busy_wait(uint64_t cycles) {

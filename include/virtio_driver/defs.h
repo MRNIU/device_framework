@@ -2,8 +2,8 @@
  * @copyright Copyright The virtio_driver Contributors
  */
 
-#ifndef VIRTIO_DRIVER_INCLUDE_DEFS_H_
-#define VIRTIO_DRIVER_INCLUDE_DEFS_H_
+#ifndef VIRTIO_DRIVER_DEFS_H_
+#define VIRTIO_DRIVER_DEFS_H_
 
 #include <cstdint>
 #include <type_traits>
@@ -109,4 +109,4 @@ class Logger {
 
 }  // namespace virtio_driver
 
-#endif /* VIRTIO_DRIVER_INCLUDE_DEFS_H_ */
+#endif /* VIRTIO_DRIVER_DEFS_H_ */
