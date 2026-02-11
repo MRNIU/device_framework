@@ -28,10 +28,16 @@ enum class InterruptStatus : uint32_t {
 static constexpr uint32_t kMmioMagicValue = 0x74726976;
 
 /**
- * @brief MMIO 版本号（v2 for virtio 1.0+, legacy 使用 v1）
+ * @brief Legacy VirtIO MMIO 版本号（VirtIO 0.9.5 及更早）
  * @see virtio-v1.2#4.2.2
  */
-static constexpr uint32_t kMmioVersion = 0x02;
+static constexpr uint32_t kMmioVersionLegacy = 0x01;
+
+/**
+ * @brief Modern VirtIO MMIO 版本号（VirtIO 1.0+）
+ * @see virtio-v1.2#4.2.2
+ */
+static constexpr uint32_t kMmioVersionModern = 0x02;
 
 /**
  * @brief Virtio MMIO 传输层
@@ -39,9 +45,11 @@ static constexpr uint32_t kMmioVersion = 0x02;
  * MMIO virtio 设备通过一组内存映射的控制寄存器和设备特定配置空间进行访问。
  * 所有寄存器值采用小端格式组织。
  *
+ * 支持 Legacy VirtIO (v1) 和 Modern VirtIO (v2, virtio 1.0+) 两种版本。
+ *
  * 寄存器布局包括：
  * - 魔数（MagicValue）: 0x74726976
- * - 版本号（Version）: 0x2（virtio 1.0+）
+ * - 版本号（Version）: 0x1（legacy）或 0x2（modern）
  * - 设备/供应商 ID
  * - 特性位配置
  * - 队列配置
@@ -119,11 +127,12 @@ class MmioTransport final : public Transport<LogFunc> {
       return;
     }
 
-    // 验证版本号
+    // 验证版本号（支持 legacy v1 和 modern v2）
     auto version = Read<uint32_t>(MmioReg::kVersion);
-    if (version != kMmioVersion) {
-      Transport<LogFunc>::Log("MMIO version mismatch: expected %u, got %u",
-                              kMmioVersion, version);
+    if (version != kMmioVersionLegacy && version != kMmioVersionModern) {
+      Transport<LogFunc>::Log(
+          "MMIO version not supported: expected %u or %u, got %u",
+          kMmioVersionLegacy, kMmioVersionModern, version);
       return;
     }
 
@@ -334,8 +343,8 @@ class MmioTransport final : public Transport<LogFunc> {
     do {
       gen1 = GetConfigGeneration();
 
-      auto ptr = reinterpret_cast<volatile uint32_t*>(base_ + MmioReg::kConfig +
-                                                      offset);
+      auto* ptr = reinterpret_cast<volatile uint32_t*>(
+          base_ + MmioReg::kConfig + offset);
       uint64_t lo = ptr[0];
       uint64_t hi = ptr[1];
       value = (hi << 32) | lo;

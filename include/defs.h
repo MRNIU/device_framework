@@ -59,92 +59,48 @@ enum class DeviceId : uint32_t {
 /**
  * @brief 保留特性位定义 (Reserved Feature Bits)
  * @see virtio-v1.2#6
- *
- * 特性位分配:
- * - 0-23: 设备特定特性位
- * - 24-40: 队列和特性协商机制扩展保留位
- * - 41-49: 为未来扩展保留
- * - 50-127: 设备特定特性位
- * - 128及以上: 为未来扩展保留
  */
 enum class ReservedFeature : uint64_t {
-  /// 设备支持间接描述符 (VIRTIO_F_INDIRECT_DESC)
-  kIndirectDesc = 1ULL << 28,
-  /// 设备支持 avail_event 和 used_event 字段 (VIRTIO_F_EVENT_IDX)
-  kEventIdx = 1ULL << 29,
-  /// 设备符合 virtio 1.0+ 规范 (VIRTIO_F_VERSION_1)
-  kVersion1 = 1ULL << 32,
-  /// 设备可被 IOMMU 限定的平台访问 (VIRTIO_F_ACCESS_PLATFORM)
-  kAccessPlatform = 1ULL << 33,
-  /// 支持 Packed Virtqueue 布局 (VIRTIO_F_RING_PACKED)
-  kRingPacked = 1ULL << 34,
-  /// 按顺序使用缓冲区 (VIRTIO_F_IN_ORDER)
-  kInOrder = 1ULL << 35,
-  /// 平台提供内存排序保证 (VIRTIO_F_ORDER_PLATFORM)
-  kOrderPlatform = 1ULL << 36,
-  /// 支持 Single Root I/O Virtualization (VIRTIO_F_SR_IOV)
-  kSrIov = 1ULL << 37,
-  /// 驱动在通知中传递额外数据 (VIRTIO_F_NOTIFICATION_DATA)
-  kNotificationData = 1ULL << 38,
+  /// 设备支持间接描述符 (VIRTIO_F_INDIRECT_DESC) [1 << 28]
+  kIndirectDesc = 0x10000000,
+  /// 设备支持 avail_event 和 used_event 字段 (VIRTIO_F_EVENT_IDX) [1 << 29]
+  kEventIdx = 0x20000000,
+  /// 设备符合 virtio 1.0+ 规范 (VIRTIO_F_VERSION_1) [1 << 32]
+  kVersion1 = 0x100000000,
+  /// 设备可被 IOMMU 限定的平台访问 (VIRTIO_F_ACCESS_PLATFORM) [1 << 33]
+  kAccessPlatform = 0x200000000,
+  /// 支持 Packed Virtqueue 布局 (VIRTIO_F_RING_PACKED) [1 << 34]
+  kRingPacked = 0x400000000,
+  /// 按顺序使用缓冲区 (VIRTIO_F_IN_ORDER) [1 << 35]
+  kInOrder = 0x800000000,
+  /// 平台提供内存排序保证 (VIRTIO_F_ORDER_PLATFORM) [1 << 36]
+  kOrderPlatform = 0x1000000000,
+  /// 支持 Single Root I/O Virtualization (VIRTIO_F_SR_IOV) [1 << 37]
+  kSrIov = 0x2000000000,
+  /// 驱动在通知中传递额外数据 (VIRTIO_F_NOTIFICATION_DATA) [1 << 38]
+  kNotificationData = 0x4000000000,
   /// 驱动使用设备提供的数据作为可用缓冲区通知的 virtqueue 标识符
-  /// (VIRTIO_F_NOTIF_CONFIG_DATA)
-  kNotifConfigData = 1ULL << 39,
-  /// 驱动可以单独重置队列 (VIRTIO_F_RING_RESET)
-  kRingReset = 1ULL << 40,
+  /// (VIRTIO_F_NOTIF_CONFIG_DATA) [1 << 39]
+  kNotifConfigData = 0x8000000000,
+  /// 驱动可以单独重置队列 (VIRTIO_F_RING_RESET) [1 << 40]
+  kRingReset = 0x10000000000,
 };
 
 /**
  * @brief 日志功能基类
- *
- * 提供类 printf 的日志打印接口，支持零开销可选日志。
- * 可在 transport 层、device 层等多个层次使用。
- *
- * @tparam LogFunc 日志函数对象类型
- *   - 默认为 std::nullptr_t（完全禁用日志，无代码生成）
- *   - 必须可默认构造（无状态函数对象）
- *   - 必须重载 operator()(const char* format, Args... args)
- *
- * @example 使用示例
- * @code
- * // 定义日志函数对象
- * struct UartLogger {
- *     void operator()(const char* format, auto&&... args) const {
- *         uart_printf(format, args...);
- *     }
- * };
- *
- * // 在 Transport 层使用
- * using MyTransport = virtio_driver::MmioTransport<UartLogger>;
- * auto transport = MyTransport(0x10001000);
- *
- * // 在 Device 层使用（LogFunc 类型必须与 Transport 一致）
- * using MyBlkDev = virtio_driver::blk::VirtioBlk<UartLogger>;
- * auto blk = MyBlkDev::create(transport, vq, platform);
- *
- * // 禁用日志（零开销）
- * using SilentTransport = virtio_driver::MmioTransport<>;
- * @endcode
- *
- * @note 当 LogFunc = std::nullptr_t 时，Log() 调用在编译期被完全优化掉
- * @note LogFunc 应为轻量级无状态对象，每次调用都临时构造
  */
 template <class LogFunc = std::nullptr_t>
 class Logger {
  public:
   /**
    * @brief 记录日志信息
-   *
-   * @tparam Args 可变参数类型
-   * @param format 格式化字符串（类 printf 格式）
-   * @param args 可变参数列表
-   *
-   * @note 使用 std::forward 确保参数完美转发
-   * @note 使用 if constexpr 确保零开销（日志禁用时无代码生成）
+   * @param  format          格式化字符串
+   * @param  args            可变参数
    */
   template <typename... Args>
   void Log(const char* format, Args&&... args) const {
     if constexpr (!std::is_same_v<LogFunc, std::nullptr_t>) {
-      LogFunc(format, std::forward<Args>(args)...);
+      LogFunc{}(format, args...);
     }
   }
 };

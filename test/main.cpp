@@ -5,6 +5,7 @@
 #include <cstdint>
 
 #include "plic.h"
+#include "test.h"
 #include "uart.h"
 // #include "virtio_blk_test_oo.hpp"  // TODO: 修复 blk 测试后启用
 
@@ -44,6 +45,9 @@ void test_main(uint32_t hart_id, uint8_t* dtb) {
 
   uart_puts("\n[SUCCESS] All initialization completed!\n");
   uart_puts("========================================\n\n");
+
+  // 测试 VirtIO MMIO 设备状态读取
+  test_virtio_mmio_device_status();
 
   // 测试 VirtIO 块设备
   // test_virtio_blk();
