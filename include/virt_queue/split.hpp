@@ -224,6 +224,73 @@ class SplitVirtqueue {
   }
 
   /**
+   * @brief 从预分配的 DMA 缓冲区构造 SplitVirtqueue
+   *
+   * 在给定的 DMA 连续内存上初始化 Descriptor Table、Available Ring
+   * 和 Used Ring，并构建空闲描述符链表。
+   *
+   * @param dma_buf  DMA 缓冲区虚拟地址（必须已清零，大小 >= CalcSize()）
+   * @param phys_base DMA 缓冲区的客户机物理基地址
+   * @param queue_size 队列大小（必须为 2 的幂，范围：1 ~ 32768）
+   * @param event_idx 是否启用 VIRTIO_F_EVENT_IDX 特性
+   *
+   * @pre dma_buf != nullptr
+   * @pre queue_size 为 2 的幂
+   * @pre dma_buf 指向的内存大小 >= CalcSize(queue_size, event_idx)
+   * @pre dma_buf 已清零
+   * @post IsValid() == true（前置条件满足时）
+   * @post 所有描述符处于空闲链表中
+   * @see virtio-v1.2#2.7
+   */
+  SplitVirtqueue(void* dma_buf, uint64_t phys_base, uint16_t queue_size,
+                 bool event_idx = true)
+      : queue_size_(queue_size), event_idx_enabled_(event_idx),
+        phys_base_(phys_base) {
+    if (dma_buf == nullptr || !IsPowerOfTwo(queue_size)) {
+      return;
+    }
+
+    // 计算各区域偏移量
+    size_t desc_total = static_cast<size_t>(sizeof(Desc)) * queue_size;
+    size_t avail_total = sizeof(uint16_t) * (2 + queue_size);
+    if (event_idx) {
+      avail_total += sizeof(uint16_t);
+    }
+
+    desc_offset_ = 0;
+    avail_offset_ = AlignUp(desc_total, Avail::kAlign);
+    size_t used_total =
+        sizeof(uint16_t) * 2 + sizeof(UsedElem) * queue_size;
+    if (event_idx) {
+      used_total += sizeof(uint16_t);
+    }
+    used_offset_ = AlignUp(avail_offset_ + avail_total, Used::kAlign);
+
+    // 设置指针
+    auto* base = static_cast<uint8_t*>(dma_buf);
+    desc_ = reinterpret_cast<volatile Desc*>(base + desc_offset_);
+    avail_ = reinterpret_cast<volatile Avail*>(base + avail_offset_);
+    used_ = reinterpret_cast<volatile Used*>(base + used_offset_);
+
+    // 初始化空闲描述符链表
+    for (uint16_t i = 0; i < queue_size; ++i) {
+      desc_[i].next = static_cast<uint16_t>(i + 1);
+    }
+    free_head_ = 0;
+    num_free_ = queue_size;
+    last_used_idx_ = 0;
+
+    is_valid_ = true;
+  }
+
+  /**
+   * @brief 检查 virtqueue 是否成功初始化
+   *
+   * @return true 表示初始化成功，false 表示参数无效
+   */
+  [[nodiscard]] auto IsValid() const -> bool { return is_valid_; }
+
+  /**
    * @brief 从空闲链表分配一个描述符
    *
    * 从空闲描述符链表中取出一个描述符，供上层使用。
@@ -456,8 +523,6 @@ class SplitVirtqueue {
   }
 
  private:
-  SplitVirtqueue() = default;
-
   /// 描述符表指针（指向 DMA 内存）
   volatile Desc* desc_ = nullptr;
   /// Available Ring 指针（指向 DMA 内存）
@@ -484,6 +549,8 @@ class SplitVirtqueue {
   size_t used_offset_ = 0;
   /// 是否启用 VIRTIO_F_EVENT_IDX 特性
   bool event_idx_enabled_ = false;
+  /// 初始化是否成功
+  bool is_valid_ = false;
 };
 
 }  // namespace virtio_driver
