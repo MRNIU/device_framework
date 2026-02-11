@@ -6,6 +6,7 @@
 
 #include <cstdint>
 
+#include "device/device_initializer.hpp"
 #include "test.h"
 #include "uart.h"
 
@@ -80,6 +81,16 @@ void test_virtio_mmio_device_status() {
 
     // 创建 MmioTransport 对象
     virtio_driver::MmioTransport<TestLogger> transport(base);
+
+    // 测试 0: 验证传输层初始化成功
+    {
+      bool is_valid = transport.IsValid();
+      EXPECT_TRUE(is_valid, "Transport should be valid after construction");
+      if (!is_valid) {
+        LOG("  Transport initialization failed, skipping device");
+        continue;
+      }
+    }
 
     // 测试 1: 验证魔数正确
     {

@@ -22,6 +22,7 @@
 #define VIRTIO_DRIVER_SRC_INCLUDE_VIRTIO_BLK_HPP_
 
 #include "defs.h"
+#include "device/device_initializer.hpp"
 #include "expected.hpp"
 #include "platform.h"
 #include "transport/transport.hpp"
@@ -436,16 +437,7 @@ class VirtioBlk : public Logger<LogFunc> {
    * @brief 创建并初始化块设备
    * @see virtio-v1.2#3.1 Device Initialization
    *
-   * 执行完整的 virtio 设备初始化序列：
-   * 1. 重置设备
-   * 2. 设置 ACKNOWLEDGE 状态位
-   * 3. 设置 DRIVER 状态位
-   * 4. 读取设备特性位
-   * 5. 协商特性（VERSION_1 必需，其他可选）
-   * 6. 设置 FEATURES_OK 状态位
-   * 7. 验证 FEATURES_OK（特性协商成功）
-   * 8. 执行设备特定设置（配置 virtqueue）
-   * 9. 设置 DRIVER_OK 状态位
+   * 使用 DeviceInitializer 执行标准的 virtio 设备初始化序列。
    *
    * @param transport 传输层实例（类型必须为 Transport<LogFunc>&）
    * @param vq 预创建的 SplitVirtqueue（单队列）
@@ -459,50 +451,37 @@ class VirtioBlk : public Logger<LogFunc> {
                                    const PlatformOps& platform,
                                    uint64_t driver_features = 0)
       -> Expected<VirtioBlk> {
-    // 1. 重置设备
-    transport.Reset();
+    // 创建设备初始化器
+    DeviceInitializer<LogFunc> initializer(transport);
 
-    // 2. 设置 ACKNOWLEDGE 状态
-    transport.SetStatus(TransportType::kAcknowledge);
-
-    // 3. 设置 DRIVER 状态
-    transport.SetStatus(TransportType::kAcknowledge | TransportType::kDriver);
-
-    // 4. 特性协商
-    uint64_t device_features = transport.GetDeviceFeatures();
+    // 1. 执行设备初始化并协商特性（VERSION_1 必需）
     uint64_t wanted_features =
         static_cast<uint64_t>(ReservedFeature::kVersion1) | driver_features;
-    uint64_t negotiated = device_features & wanted_features;
+    auto negotiated_result = initializer.Init(wanted_features);
+    if (!negotiated_result) {
+      return std::unexpected(negotiated_result.error());
+    }
+    uint64_t negotiated = negotiated_result.value();
 
     // 必须支持 VERSION_1
     if ((negotiated & static_cast<uint64_t>(ReservedFeature::kVersion1)) == 0) {
-      transport.SetStatus(Transport::kFailed);
-      return ErrorCode::kFeatureNegotiationFailed;
-    }
-
-    transport.SetDriverFeatures(negotiated);
-
-    // 5. 设置 FEATURES_OK
-    transport.SetStatus(TransportType::kAcknowledge | TransportType::kDriver |
-                        TransportType::kFeaturesOk);
-
-    // 6. 验证 FEATURES_OK
-    if ((transport.GetStatus() & TransportType::kFeaturesOk) == 0) {
-      transport.SetStatus(TransportType::kFailed);
+      transport.SetStatus(Transport<LogFunc>::kFailed);
       return std::unexpected(Error{ErrorCode::kFeatureNegotiationFailed});
     }
 
-    // 7. 配置 virtqueue 0（块设备仅使用一个队列）
+    // 2. 配置 virtqueue 0（块设备仅使用一个队列）
     const uint32_t queue_idx = 0;
-    transport.SetQueueNum(queue_idx, vq.size());
-    transport.SetQueueDesc(queue_idx, vq.desc_phys());
-    transport.SetQueueAvail(queue_idx, vq.avail_phys());
-    transport.SetQueueUsed(queue_idx, vq.used_phys());
-    transport.SetQueueReady(queue_idx, true);
+    auto setup_result = initializer.SetupQueue(
+        queue_idx, vq.desc_phys(), vq.avail_phys(), vq.used_phys(), vq.size());
+    if (!setup_result) {
+      return std::unexpected(setup_result.error());
+    }
 
-    // 8. 设置 DRIVER_OK
-    transport.SetStatus(TransportType::kAcknowledge | TransportType::kDriver |
-                        TransportType::kFeaturesOk | TransportType::kDriverOk);
+    // 3. 激活设备
+    auto activate_result = initializer.Activate();
+    if (!activate_result) {
+      return std::unexpected(activate_result.error());
+    }
 
     return VirtioBlk(transport, vq, platform, negotiated);
   }

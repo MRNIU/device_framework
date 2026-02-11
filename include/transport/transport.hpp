@@ -57,10 +57,21 @@ class Transport : public Logger<LogFunc> {
   virtual ~Transport() = default;
 
   /**
+   * @brief 检查传输层是否成功初始化
+   *
+   * 在调用其他任何方法之前应先检查此状态。
+   * 如果初始化失败（如 MMIO 魔数错误、设备不存在等），返回 false。
+   *
+   * @return true 表示传输层初始化成功，可以使用；false 表示初始化失败
+   */
+  [[nodiscard]] virtual auto IsValid() const -> bool = 0;
+
+  /**
    * @brief 获取 Virtio Subsystem Device ID
    *
    * Device ID 用于标识设备类型（例如：1 = 网络设备，2 = 块设备）。
    *
+   * @pre IsValid() == true
    * @return 设备类型 ID
    * @see virtio-v1.2#5 Device Types
    */
@@ -314,112 +325,6 @@ class Transport : public Logger<LogFunc> {
    * @see virtio-v1.2#4.2.2 MMIO Device Register Layout (ConfigGeneration)
    */
   [[nodiscard]] virtual auto GetConfigGeneration() const -> uint32_t = 0;
-
-  /**
-   * @brief 执行 virtio 设备初始化序列
-   *
-   * 完整执行设备初始化流程（步骤 1-6）：
-   * 1. 重置设备（写入 0 到 status 寄存器）
-   * 2. 设置 ACKNOWLEDGE 状态位（识别为 virtio 设备）
-   * 3. 设置 DRIVER 状态位（驱动程序知道如何驱动）
-   * 4. 读取设备特性，与 driver_features 取交集后写回
-   * 5. 设置 FEATURES_OK 状态位
-   * 6. 重新读取验证 FEATURES_OK 是否仍被设置（设备可能拒绝某些特性组合）
-   *
-   * @param driver_features 驱动希望启用的特性位（与设备特性取交集）
-   * @return 成功时返回实际协商后的特性位；失败返回错误
-   * @note 初始化成功后，调用者还需配置队列并调用 Activate() 完成激活
-   * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
-   */
-  [[nodiscard]] auto Init(uint64_t driver_features) -> Expected<uint64_t> {
-    // 重置设备
-    Reset();
-
-    // 设置 ACKNOWLEDGE 状态位
-    SetStatus(kAcknowledge);
-
-    // 设置 DRIVER 状态位
-    SetStatus(kAcknowledge | kDriver);
-
-    // 特性协商
-    uint64_t device_features = GetDeviceFeatures();
-    uint64_t negotiated_features = device_features & driver_features;
-    SetDriverFeatures(negotiated_features);
-
-    // 设置 FEATURES_OK 状态位
-    SetStatus(kAcknowledge | kDriver | kFeaturesOk);
-
-    // 验证 FEATURES_OK
-    uint32_t status = GetStatus();
-    if ((status & kFeaturesOk) == 0) {
-      // 设备拒绝了特性组合
-      SetStatus(status | kFailed);
-      return std::unexpected(Error{ErrorCode::kFeatureNegotiationFailed});
-    }
-
-    return negotiated_features;
-  }
-
-  /**
-   * @brief 配置并激活指定的 virtqueue
-   *
-   * 设置 virtqueue 的物理地址和大小，然后标记为就绪（步骤 7 的一部分）。
-   * 必须在调用 Init() 之后、Activate() 之前完成。
-   *
-   * @param queue_idx 队列索引（从 0 开始）
-   * @param desc_phys 描述符表的客户机物理地址（16 字节对齐）
-   * @param avail_phys Available Ring 的客户机物理地址（2 字节对齐）
-   * @param used_phys Used Ring 的客户机物理地址（4 字节对齐）
-   * @param queue_size 队列大小（必须 <= GetQueueNumMax()）
-   * @return 成功或失败
-   * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
-   */
-  [[nodiscard]] auto SetupQueue(uint32_t queue_idx, uint64_t desc_phys,
-                                uint64_t avail_phys, uint64_t used_phys,
-                                uint32_t queue_size) -> Expected<void> {
-    // 检查队列大小是否有效
-    uint32_t max_size = GetQueueNumMax(queue_idx);
-    if (max_size == 0) {
-      return std::unexpected(Error{ErrorCode::kQueueNotAvailable});
-    }
-    if (queue_size > max_size) {
-      return std::unexpected(Error{ErrorCode::kQueueTooLarge});
-    }
-
-    // 配置队列
-    SetQueueNum(queue_idx, queue_size);
-    SetQueueDesc(queue_idx, desc_phys);
-    SetQueueAvail(queue_idx, avail_phys);
-    SetQueueUsed(queue_idx, used_phys);
-
-    // 标记队列就绪
-    SetQueueReady(queue_idx, true);
-
-    return {};
-  }
-
-  /**
-   * @brief 激活设备，开始正常运行
-   *
-   * 设置 DRIVER_OK 状态位，完成设备初始化流程（步骤 8）。
-   * 必须在所有队列配置完成后调用。
-   * 调用后设备开始正常运行，可以处理队列中的请求。
-   *
-   * @return 成功或失败
-   * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
-   */
-  [[nodiscard]] auto Activate() -> Expected<void> {
-    uint32_t current_status = GetStatus();
-    SetStatus(current_status | kDriverOk);
-
-    // 验证设备是否正常激活
-    uint32_t new_status = GetStatus();
-    if ((new_status & kDeviceNeedsReset) != 0) {
-      return std::unexpected(Error{ErrorCode::kDeviceError});
-    }
-
-    return {};
-  }
 
   /**
    * @brief 检查设备是否需要重置

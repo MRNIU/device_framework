@@ -19,6 +19,8 @@ enum class ErrorCode : uint32_t {
   kInvalidVersion,
   /// 无效的设备 ID（设备不存在）
   kInvalidDeviceId,
+  /// 传输层未正确初始化
+  kTransportNotInitialized,
   /// 特性协商失败
   kFeatureNegotiationFailed,
   /// 队列不可用（queue_num_max == 0）
@@ -58,6 +60,8 @@ constexpr auto GetErrorMessage(ErrorCode code) -> const char* {
       return "Unsupported virtio version";
     case ErrorCode::kInvalidDeviceId:
       return "Invalid device ID (device does not exist)";
+    case ErrorCode::kTransportNotInitialized:
+      return "Transport layer not initialized";
     case ErrorCode::kFeatureNegotiationFailed:
       return "Feature negotiation failed";
     case ErrorCode::kQueueNotAvailable:

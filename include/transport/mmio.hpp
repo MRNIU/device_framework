@@ -115,9 +115,19 @@ class MmioTransport final : public Transport<LogFunc> {
   /**
    * @brief 构造函数
    *
+   * 在构造时完成以下初始化：
+   * 1. 验证 MMIO 魔数和版本号
+   * 2. 检查设备是否存在（Device ID != 0）
+   * 3. 执行设备重置
+   * 4. 缓存设备 ID 和 Vendor ID
+   *
    * @param base MMIO 寄存器基地址
+   *
+   * @post 构造完成后应调用 IsValid() 检查初始化是否成功
+   * @see virtio-v1.2#4.2.2 MMIO Device Register Layout
    */
-  explicit MmioTransport(uint64_t base) : base_(base) {
+  explicit MmioTransport(uint64_t base)
+      : base_(base), is_valid_(false), device_id_(0), vendor_id_(0) {
     // 验证魔数
     auto magic = Read<uint32_t>(MmioReg::kMagicValue);
     if (magic != kMmioMagicValue) {
@@ -128,28 +138,58 @@ class MmioTransport final : public Transport<LogFunc> {
     }
 
     // 验证版本号（支持 legacy v1 和 modern v2）
-    auto version = Read<uint32_t>(MmioReg::kVersion);
-    if (version != kMmioVersionLegacy && version != kMmioVersionModern) {
+    version_ = Read<uint32_t>(MmioReg::kVersion);
+    if (version_ != kMmioVersionLegacy && version_ != kMmioVersionModern) {
       Transport<LogFunc>::Log(
           "MMIO version not supported: expected %u or %u, got %u",
-          kMmioVersionLegacy, kMmioVersionModern, version);
+          kMmioVersionLegacy, kMmioVersionModern, version_);
       return;
     }
 
     // 设备 ID 为 0 表示不存在设备
-    auto device_id = Read<uint32_t>(MmioReg::kDeviceId);
-    if (device_id == 0) {
+    device_id_ = Read<uint32_t>(MmioReg::kDeviceId);
+    if (device_id_ == 0) {
       Transport<LogFunc>::Log("MMIO device ID is 0, no device found");
       return;
     }
+
+    // 缓存 Vendor ID
+    vendor_id_ = Read<uint32_t>(MmioReg::kVendorId);
+
+    // 执行设备重置
+    Transport<LogFunc>::Reset();
+
+    // 标记初始化成功
+    is_valid_ = true;
+
+    Transport<LogFunc>::Log(
+        "MMIO device initialized: DeviceID=0x%08x, VendorID=0x%08x, "
+        "Version=%u",
+        device_id_, vendor_id_, version_);
   }
 
+  /**
+   * @brief 检查设备是否成功初始化
+   *
+   * 在使用任何其他方法之前应先检查此状态。
+   *
+   * @return true 表示设备初始化成功，false 表示初始化失败
+   */
+  [[nodiscard]] auto IsValid() const -> bool { return is_valid_; }
+
+  /**
+   * @brief 获取 MMIO 版本号
+   *
+   * @return MMIO 版本（1 = legacy, 2 = modern）
+   */
+  [[nodiscard]] auto GetVersion() const -> uint32_t { return version_; }
+
   [[nodiscard]] auto GetDeviceId() const -> uint32_t override {
-    return Read<uint32_t>(MmioReg::kDeviceId);
+    return device_id_;
   }
 
   [[nodiscard]] auto GetVendorId() const -> uint32_t override {
-    return Read<uint32_t>(MmioReg::kVendorId);
+    return vendor_id_;
   }
 
   [[nodiscard]] auto GetStatus() const -> uint32_t override {
@@ -392,6 +432,18 @@ class MmioTransport final : public Transport<LogFunc> {
 
   /// MMIO 寄存器基地址（虚拟地址）
   uint64_t base_;
+
+  /// 设备是否成功初始化
+  bool is_valid_;
+
+  /// MMIO 版本号（缓存以避免重复读取）
+  uint32_t version_;
+
+  /// 设备 ID（缓存以避免重复读取）
+  uint32_t device_id_;
+
+  /// 供应商 ID（缓存以避免重复读取）
+  uint32_t vendor_id_;
 };
 
 }  // namespace virtio_driver
