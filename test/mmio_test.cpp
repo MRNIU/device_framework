@@ -9,6 +9,20 @@
 #include "test.h"
 #include "uart.h"
 
+void operator delete(void*, size_t) noexcept {}
+
+namespace {
+
+// 日志函数类型
+struct TestLogger {
+  auto operator()(const char* format, ...) const -> int {
+    uart_puts("[MMIO] ");
+    uart_puts(format);
+    uart_puts("\n");
+    return 0;
+  }
+};
+
 /**
  * @brief QEMU virt 机器上的 VirtIO MMIO 设备起始地址
  */
@@ -23,6 +37,7 @@ constexpr uint64_t kVirtioMmioSize = 0x1000;
  * @brief 扫描的最大设备数量
  */
 constexpr int kMaxDevices = 8;
+}  // namespace
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
 void test_virtio_mmio_device_status() {
@@ -63,13 +78,13 @@ void test_virtio_mmio_device_status() {
     LOG("  Found valid VirtIO device!");
     devices_found++;
 
-    // 创建 MmioTransport 对象（不使用日志功能）
-    virtio_driver::MmioTransport<> transport(base);
+    // 创建 MmioTransport 对象
+    virtio_driver::MmioTransport<TestLogger> transport(base);
 
     // 测试 1: 验证魔数正确
     {
       auto magic_value = *reinterpret_cast<volatile uint32_t*>(
-          base + virtio_driver::MmioTransport<>::MmioReg::kMagicValue);
+          base + transport.MmioReg::kMagicValue);
       EXPECT_EQ(virtio_driver::kMmioMagicValue, magic_value,
                 "Magic value should be 0x74726976");
     }
@@ -77,7 +92,7 @@ void test_virtio_mmio_device_status() {
     // 测试 2: 验证版本号
     {
       auto version = *reinterpret_cast<volatile uint32_t*>(
-          base + virtio_driver::MmioTransport<>::MmioReg::kVersion);
+          base + transport.MmioReg::kVersion);
       // QEMU MMIO 设备可能报告 legacy 或 modern 版本
       EXPECT_TRUE(version == virtio_driver::kMmioVersionLegacy ||
                       version == virtio_driver::kMmioVersionModern,
