@@ -5,8 +5,8 @@
  * @see virtio-v1.2#5.2 Block Device
  */
 
-#ifndef VIRTIO_DRIVER_SRC_INCLUDE_VIRTIO_BLK_HPP_
-#define VIRTIO_DRIVER_SRC_INCLUDE_VIRTIO_BLK_HPP_
+#ifndef VIRTIO_DRIVER_INCLUDE_DEVICE_VIRTIO_BLK_HPP_
+#define VIRTIO_DRIVER_INCLUDE_DEVICE_VIRTIO_BLK_HPP_
 
 #include "defs.h"
 #include "device/device_initializer.hpp"
@@ -331,7 +331,7 @@ class VirtioBlk : public Logger<LogFunc> {
     // 创建设备初始化器
     DeviceInitializer<LogFunc> initializer(transport);
 
-    // 1. 执行设备初始化并协商特性（优先协商 VERSION_1，兼容 legacy 设备）
+    // 1. 执行设备初始化并协商特性（VERSION_1 为必须）
     uint64_t wanted_features =
         static_cast<uint64_t>(ReservedFeature::kVersion1) | driver_features;
     auto negotiated_result = initializer.Init(wanted_features);
@@ -340,7 +340,11 @@ class VirtioBlk : public Logger<LogFunc> {
     }
     uint64_t negotiated = *negotiated_result;
 
-    // VERSION_1 为可选：modern 设备协商成功，legacy 设备跳过
+    // 验证 VERSION_1 已协商成功
+    if ((negotiated & static_cast<uint64_t>(ReservedFeature::kVersion1)) == 0) {
+      initializer.Log("Device does not support VERSION_1 (modern mode)");
+      return std::unexpected(Error{ErrorCode::kFeatureNegotiationFailed});
+    }
 
     // 2. 配置 virtqueue 0（块设备仅使用一个队列）
     const uint32_t queue_idx = 0;
@@ -395,7 +399,6 @@ class VirtioBlk : public Logger<LogFunc> {
   [[nodiscard]] auto Write(uint64_t sector, const uint8_t* data,
                            uint8_t* status_out, BlkReqHeader* header)
       -> Expected<void> {
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
     return DoRequest(ReqType::kOut, sector, const_cast<uint8_t*>(data),
                      status_out, header);
   }
@@ -426,10 +429,15 @@ class VirtioBlk : public Logger<LogFunc> {
       // 释放描述符链：遍历 kDescFNext 标志释放链上所有描述符
       uint16_t idx = head;
       while (true) {
-        uint16_t next = vq_.GetDesc(idx).next;
-        bool has_next =
-            (vq_.GetDesc(idx).flags & SplitVirtqueue::kDescFNext) != 0;
-        vq_.FreeDesc(idx);
+        auto desc_result = vq_.GetDesc(idx);
+        if (!desc_result.has_value()) {
+          break;
+        }
+        auto* desc = *desc_result;
+        uint16_t next = desc->next;
+        bool has_next = (desc->flags & SplitVirtqueue::kDescFNext) != 0;
+        // FreeDesc 对刚从 Used Ring 回收的索引不应失败
+        (void)vq_.FreeDesc(idx);
         if (!has_next) {
           break;
         }
@@ -476,58 +484,83 @@ class VirtioBlk : public Logger<LogFunc> {
     config.seg_max = transport_.ReadConfigU32(
         static_cast<uint32_t>(BlkConfigOffset::kSegMax));
 
-    // 几何信息（如果 VIRTIO_BLK_F_GEOMETRY 被协商）
-    config.geometry.cylinders = transport_.ReadConfigU16(
-        static_cast<uint32_t>(BlkConfigOffset::kGeometryCylinders));
-    config.geometry.heads = transport_.ReadConfigU8(
-        static_cast<uint32_t>(BlkConfigOffset::kGeometryHeads));
-    config.geometry.sectors = transport_.ReadConfigU8(
-        static_cast<uint32_t>(BlkConfigOffset::kGeometrySectors));
+    // 几何信息（仅当 VIRTIO_BLK_F_GEOMETRY 被协商时读取）
+    if ((negotiated_features_ &
+         static_cast<uint64_t>(BlkFeatureBit::kGeometry)) != 0) {
+      config.geometry.cylinders = transport_.ReadConfigU16(
+          static_cast<uint32_t>(BlkConfigOffset::kGeometryCylinders));
+      config.geometry.heads = transport_.ReadConfigU8(
+          static_cast<uint32_t>(BlkConfigOffset::kGeometryHeads));
+      config.geometry.sectors = transport_.ReadConfigU8(
+          static_cast<uint32_t>(BlkConfigOffset::kGeometrySectors));
+    }
 
-    config.blk_size = transport_.ReadConfigU32(
-        static_cast<uint32_t>(BlkConfigOffset::kBlkSize));
+    // 块大小（仅当 VIRTIO_BLK_F_BLK_SIZE 被协商时读取）
+    if ((negotiated_features_ &
+         static_cast<uint64_t>(BlkFeatureBit::kBlkSize)) != 0) {
+      config.blk_size = transport_.ReadConfigU32(
+          static_cast<uint32_t>(BlkConfigOffset::kBlkSize));
+    }
 
-    // 拓扑信息（如果 VIRTIO_BLK_F_TOPOLOGY 被协商）
-    config.topology.physical_block_exp = transport_.ReadConfigU8(
-        static_cast<uint32_t>(BlkConfigOffset::kTopologyPhysBlockExp));
-    config.topology.alignment_offset = transport_.ReadConfigU8(
-        static_cast<uint32_t>(BlkConfigOffset::kTopologyAlignOffset));
-    config.topology.min_io_size = transport_.ReadConfigU16(
-        static_cast<uint32_t>(BlkConfigOffset::kTopologyMinIoSize));
-    config.topology.opt_io_size = transport_.ReadConfigU32(
-        static_cast<uint32_t>(BlkConfigOffset::kTopologyOptIoSize));
+    // 拓扑信息（仅当 VIRTIO_BLK_F_TOPOLOGY 被协商时读取）
+    if ((negotiated_features_ &
+         static_cast<uint64_t>(BlkFeatureBit::kTopology)) != 0) {
+      config.topology.physical_block_exp = transport_.ReadConfigU8(
+          static_cast<uint32_t>(BlkConfigOffset::kTopologyPhysBlockExp));
+      config.topology.alignment_offset = transport_.ReadConfigU8(
+          static_cast<uint32_t>(BlkConfigOffset::kTopologyAlignOffset));
+      config.topology.min_io_size = transport_.ReadConfigU16(
+          static_cast<uint32_t>(BlkConfigOffset::kTopologyMinIoSize));
+      config.topology.opt_io_size = transport_.ReadConfigU32(
+          static_cast<uint32_t>(BlkConfigOffset::kTopologyOptIoSize));
+    }
 
-    // 缓存模式（如果 VIRTIO_BLK_F_CONFIG_WCE 被协商）
-    config.writeback = transport_.ReadConfigU8(
-        static_cast<uint32_t>(BlkConfigOffset::kWriteback));
+    // 缓存模式（仅当 VIRTIO_BLK_F_CONFIG_WCE 被协商时读取）
+    if ((negotiated_features_ &
+         static_cast<uint64_t>(BlkFeatureBit::kConfigWce)) != 0) {
+      config.writeback = transport_.ReadConfigU8(
+          static_cast<uint32_t>(BlkConfigOffset::kWriteback));
+    }
 
-    // Discard 支持（如果 VIRTIO_BLK_F_DISCARD 被协商）
-    config.max_discard_sectors = transport_.ReadConfigU32(
-        static_cast<uint32_t>(BlkConfigOffset::kMaxDiscardSectors));
-    config.max_discard_seg = transport_.ReadConfigU32(
-        static_cast<uint32_t>(BlkConfigOffset::kMaxDiscardSeg));
-    config.discard_sector_alignment = transport_.ReadConfigU32(
-        static_cast<uint32_t>(BlkConfigOffset::kDiscardSectorAlignment));
+    // Discard 支持（仅当 VIRTIO_BLK_F_DISCARD 被协商时读取）
+    if ((negotiated_features_ &
+         static_cast<uint64_t>(BlkFeatureBit::kDiscard)) != 0) {
+      config.max_discard_sectors = transport_.ReadConfigU32(
+          static_cast<uint32_t>(BlkConfigOffset::kMaxDiscardSectors));
+      config.max_discard_seg = transport_.ReadConfigU32(
+          static_cast<uint32_t>(BlkConfigOffset::kMaxDiscardSeg));
+      config.discard_sector_alignment = transport_.ReadConfigU32(
+          static_cast<uint32_t>(BlkConfigOffset::kDiscardSectorAlignment));
+    }
 
-    // Write Zeroes 支持（如果 VIRTIO_BLK_F_WRITE_ZEROES 被协商）
-    config.max_write_zeroes_sectors = transport_.ReadConfigU32(
-        static_cast<uint32_t>(BlkConfigOffset::kMaxWriteZeroesSectors));
-    config.max_write_zeroes_seg = transport_.ReadConfigU32(
-        static_cast<uint32_t>(BlkConfigOffset::kMaxWriteZeroesSeg));
-    config.write_zeroes_may_unmap = transport_.ReadConfigU8(
-        static_cast<uint32_t>(BlkConfigOffset::kWriteZeroesMayUnmap));
+    // Write Zeroes 支持（仅当 VIRTIO_BLK_F_WRITE_ZEROES 被协商时读取）
+    if ((negotiated_features_ &
+         static_cast<uint64_t>(BlkFeatureBit::kWriteZeroes)) != 0) {
+      config.max_write_zeroes_sectors = transport_.ReadConfigU32(
+          static_cast<uint32_t>(BlkConfigOffset::kMaxWriteZeroesSectors));
+      config.max_write_zeroes_seg = transport_.ReadConfigU32(
+          static_cast<uint32_t>(BlkConfigOffset::kMaxWriteZeroesSeg));
+      config.write_zeroes_may_unmap = transport_.ReadConfigU8(
+          static_cast<uint32_t>(BlkConfigOffset::kWriteZeroesMayUnmap));
+    }
 
-    // Secure Erase 支持（如果 VIRTIO_BLK_F_SECURE_ERASE 被协商）
-    config.max_secure_erase_sectors = transport_.ReadConfigU32(
-        static_cast<uint32_t>(BlkConfigOffset::kMaxSecureEraseSectors));
-    config.max_secure_erase_seg = transport_.ReadConfigU32(
-        static_cast<uint32_t>(BlkConfigOffset::kMaxSecureEraseSeg));
-    config.secure_erase_sector_alignment = transport_.ReadConfigU32(
-        static_cast<uint32_t>(BlkConfigOffset::kSecureEraseSectorAlignment));
+    // Secure Erase 支持（仅当 VIRTIO_BLK_F_SECURE_ERASE 被协商时读取）
+    if ((negotiated_features_ &
+         static_cast<uint64_t>(BlkFeatureBit::kSecureErase)) != 0) {
+      config.max_secure_erase_sectors = transport_.ReadConfigU32(
+          static_cast<uint32_t>(BlkConfigOffset::kMaxSecureEraseSectors));
+      config.max_secure_erase_seg = transport_.ReadConfigU32(
+          static_cast<uint32_t>(BlkConfigOffset::kMaxSecureEraseSeg));
+      config.secure_erase_sector_alignment = transport_.ReadConfigU32(
+          static_cast<uint32_t>(BlkConfigOffset::kSecureEraseSectorAlignment));
+    }
 
-    // 多队列支持（如果 VIRTIO_BLK_F_MQ 被协商）
-    config.num_queues = transport_.ReadConfigU16(
-        static_cast<uint32_t>(BlkConfigOffset::kNumQueues));
+    // 多队列支持（仅当 VIRTIO_BLK_F_MQ 被协商时读取）
+    if ((negotiated_features_ & static_cast<uint64_t>(BlkFeatureBit::kMq)) !=
+        0) {
+      config.num_queues = transport_.ReadConfigU16(
+          static_cast<uint32_t>(BlkConfigOffset::kNumQueues));
+    }
 
     return config;
   }
@@ -595,6 +628,11 @@ class VirtioBlk : public Logger<LogFunc> {
   [[nodiscard]] auto DoRequest(ReqType type, uint64_t sector, uint8_t* data,
                                uint8_t* status_out, BlkReqHeader* header)
       -> Expected<void> {
+    // 检查指针有效性
+    if (data == nullptr || status_out == nullptr || header == nullptr) {
+      return std::unexpected(Error{ErrorCode::kInvalidArgument});
+    }
+
     // 分配 3 个描述符：header -> data -> status
     auto desc0_result = vq_.AllocDesc();
     if (!desc0_result.has_value()) {
@@ -604,15 +642,15 @@ class VirtioBlk : public Logger<LogFunc> {
 
     auto desc1_result = vq_.AllocDesc();
     if (!desc1_result.has_value()) {
-      vq_.FreeDesc(desc0);
+      (void)vq_.FreeDesc(desc0);
       return std::unexpected(desc1_result.error());
     }
     uint16_t desc1 = *desc1_result;
 
     auto desc2_result = vq_.AllocDesc();
     if (!desc2_result.has_value()) {
-      vq_.FreeDesc(desc0);
-      vq_.FreeDesc(desc1);
+      (void)vq_.FreeDesc(desc0);
+      (void)vq_.FreeDesc(desc1);
       return std::unexpected(desc2_result.error());
     }
     uint16_t desc2 = *desc2_result;
@@ -623,29 +661,32 @@ class VirtioBlk : public Logger<LogFunc> {
     header->sector = sector;
 
     // 设置描述符 0：请求头（设备只读）
-    vq_.GetDesc(desc0).addr = platform_.virt_to_phys(header);
-    vq_.GetDesc(desc0).len = sizeof(BlkReqHeader);
-    vq_.GetDesc(desc0).flags = SplitVirtqueue::kDescFNext;
-    vq_.GetDesc(desc0).next = desc1;
+    // 描述符刚由 AllocDesc 分配，索引一定有效
+    auto* d0 = *vq_.GetDesc(desc0);
+    d0->addr = platform_.virt_to_phys(header);
+    d0->len = sizeof(BlkReqHeader);
+    d0->flags = SplitVirtqueue::kDescFNext;
+    d0->next = desc1;
 
     // 设置描述符 1：数据缓冲区
-    vq_.GetDesc(desc1).addr = platform_.virt_to_phys(data);
-    vq_.GetDesc(desc1).len = kSectorSize;
+    auto* d1 = *vq_.GetDesc(desc1);
+    d1->addr = platform_.virt_to_phys(data);
+    d1->len = kSectorSize;
     if (type == ReqType::kIn) {
       // 读取：设备写入数据
-      vq_.GetDesc(desc1).flags =
-          SplitVirtqueue::kDescFNext | SplitVirtqueue::kDescFWrite;
+      d1->flags = SplitVirtqueue::kDescFNext | SplitVirtqueue::kDescFWrite;
     } else {
       // 写入：设备读取数据
-      vq_.GetDesc(desc1).flags = SplitVirtqueue::kDescFNext;
+      d1->flags = SplitVirtqueue::kDescFNext;
     }
-    vq_.GetDesc(desc1).next = desc2;
+    d1->next = desc2;
 
     // 设置描述符 2：状态字节（设备只写）
-    vq_.GetDesc(desc2).addr = platform_.virt_to_phys(status_out);
-    vq_.GetDesc(desc2).len = sizeof(uint8_t);
-    vq_.GetDesc(desc2).flags = SplitVirtqueue::kDescFWrite;
-    vq_.GetDesc(desc2).next = 0;
+    auto* d2 = *vq_.GetDesc(desc2);
+    d2->addr = platform_.virt_to_phys(status_out);
+    d2->len = sizeof(uint8_t);
+    d2->flags = SplitVirtqueue::kDescFWrite;
+    d2->next = 0;
 
     // 内存屏障：确保描述符已写入内存
     if (platform_.wmb) {
@@ -678,4 +719,4 @@ class VirtioBlk : public Logger<LogFunc> {
 
 }  // namespace virtio_driver::blk
 
-#endif /* VIRTIO_DRIVER_SRC_INCLUDE_VIRTIO_BLK_HPP_ */
+#endif /* VIRTIO_DRIVER_INCLUDE_DEVICE_VIRTIO_BLK_HPP_ */

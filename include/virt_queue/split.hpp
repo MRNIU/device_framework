@@ -2,8 +2,8 @@
  * @copyright Copyright The virtio_driver Contributors
  */
 
-#ifndef VIRTIO_DRIVER_SRC_INCLUDE_VIRT_QUEUE_SPLIT_HPP_
-#define VIRTIO_DRIVER_SRC_INCLUDE_VIRT_QUEUE_SPLIT_HPP_
+#ifndef VIRTIO_DRIVER_INCLUDE_VIRT_QUEUE_SPLIT_HPP_
+#define VIRTIO_DRIVER_INCLUDE_VIRT_QUEUE_SPLIT_HPP_
 
 #include "expected.hpp"
 #include "misc.hpp"
@@ -156,7 +156,7 @@ class SplitVirtqueue {
     /// 设备将下一个描述符条目放入环中的位置(模 queue_size) (little-endian)
     uint16_t idx;
     /// 已用描述符元素数组 ring[queue_size]
-    UsedElem ring[];  // NOLINT(modernize-avoid-c-arrays)
+    UsedElem ring[];
 
     /**
      * @brief 获取 avail_event 字段的指针
@@ -331,10 +331,14 @@ class SplitVirtqueue {
    * @warning 释放已释放的描述符或无效索引会导致空闲链表损坏
    * @see virtio-v1.2#2.7.14 Receiving Used Buffers From The Device
    */
-  auto FreeDesc(uint16_t idx) -> void {
+  auto FreeDesc(uint16_t idx) -> Expected<void> {
+    if (idx >= queue_size_) {
+      return std::unexpected(Error{ErrorCode::kInvalidDescriptor});
+    }
     desc_[idx].next = free_head_;
     free_head_ = idx;
     ++num_free_;
+    return {};
   }
 
   /**
@@ -347,18 +351,25 @@ class SplitVirtqueue {
    * @return 描述符的 volatile 引用（用于与设备共享内存）
    * @see virtio-v1.2#2.7.5 The Virtqueue Descriptor Table
    */
-  [[nodiscard]] auto GetDesc(uint16_t idx) -> volatile Desc& {
-    return desc_[idx];
+  [[nodiscard]] auto GetDesc(uint16_t idx) -> Expected<volatile Desc*> {
+    if (idx >= queue_size_) {
+      return std::unexpected(Error{ErrorCode::kInvalidDescriptor});
+    }
+    return &desc_[idx];
   }
 
   /**
    * @brief 获取描述符的只读引用
    *
    * @param idx 描述符索引（必须 < queue_size）
-   * @return 描述符的 const volatile 引用
+   * @return 描述符的 const volatile 指针，失败返回错误
    */
-  [[nodiscard]] auto GetDesc(uint16_t idx) const -> const volatile Desc& {
-    return desc_[idx];
+  [[nodiscard]] auto GetDesc(uint16_t idx) const
+      -> Expected<const volatile Desc*> {
+    if (idx >= queue_size_) {
+      return std::unexpected(Error{ErrorCode::kInvalidDescriptor});
+    }
+    return &desc_[idx];
   }
 
   /**
@@ -526,6 +537,15 @@ class SplitVirtqueue {
     return event_idx_enabled_ ? used_->avail_event(queue_size_) : nullptr;
   }
 
+  /// @name 构造/析构函数
+  /// @{
+  SplitVirtqueue(const SplitVirtqueue&) = delete;
+  SplitVirtqueue(SplitVirtqueue&&) = delete;
+  auto operator=(const SplitVirtqueue&) -> SplitVirtqueue& = delete;
+  auto operator=(SplitVirtqueue&&) -> SplitVirtqueue& = delete;
+  ~SplitVirtqueue() = default;
+  /// @}
+
  private:
   /// 描述符表指针（指向 DMA 内存）
   volatile Desc* desc_ = nullptr;
@@ -559,4 +579,4 @@ class SplitVirtqueue {
 
 }  // namespace virtio_driver
 
-#endif /* VIRTIO_DRIVER_SRC_INCLUDE_VIRT_QUEUE_SPLIT_HPP_ */
+#endif /* VIRTIO_DRIVER_INCLUDE_VIRT_QUEUE_SPLIT_HPP_ */

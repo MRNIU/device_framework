@@ -2,8 +2,8 @@
  * @copyright Copyright The virtio_driver Contributors
  */
 
-#ifndef VIRTIO_DRIVER_SRC_INCLUDE_TRANSPORT_TRANSPORT_HPP_
-#define VIRTIO_DRIVER_SRC_INCLUDE_TRANSPORT_TRANSPORT_HPP_
+#ifndef VIRTIO_DRIVER_INCLUDE_TRANSPORT_TRANSPORT_HPP_
+#define VIRTIO_DRIVER_INCLUDE_TRANSPORT_TRANSPORT_HPP_
 
 #include "defs.h"
 #include "expected.hpp"
@@ -351,4 +351,4 @@ class Transport : public Logger<LogFunc> {
 
 }  // namespace virtio_driver
 
-#endif /* VIRTIO_DRIVER_SRC_INCLUDE_TRANSPORT_TRANSPORT_HPP_ */
+#endif /* VIRTIO_DRIVER_INCLUDE_TRANSPORT_TRANSPORT_HPP_ */

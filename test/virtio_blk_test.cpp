@@ -48,15 +48,12 @@ constexpr uint32_t kBlockDeviceId = 2;
 constexpr uint16_t kQueueSize = 128;
 /// 页大小（字节）
 constexpr size_t kPageSize = 4096;
-/// Legacy MMIO Used Ring 对齐（页大小）
-constexpr size_t kLegacyUsedAlign = 4096;
 
 /**
  * @brief 静态 DMA 内存区域
  *
  * 在裸机环境中无法使用 malloc，使用静态缓冲区模拟 DMA 内存。
  * 需要页对齐以满足 DMA 要求。
- * 大小需满足 legacy 布局：Used Ring 按页对齐。
  */
 alignas(4096) static uint8_t g_vq_dma_buf[32768];
 
@@ -130,7 +127,6 @@ void memzero(void* ptr, size_t len) {
 
 }  // namespace
 
-// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 void test_virtio_blk() {
   uart_puts("\n");
   uart_puts("╔════════════════════════════════════════╗\n");
@@ -160,18 +156,10 @@ void test_virtio_blk() {
             "Device ID should be 2 (block)");
 
   // === 测试 3: 初始化 SplitVirtqueue ===
-  // Legacy MMIO (v1) 要求 Used Ring 按页对齐
-  bool is_legacy =
-      (transport.GetVersion() == virtio_driver::kMmioVersionLegacy);
-  size_t used_align = is_legacy ? kLegacyUsedAlign
-                                : virtio_driver::SplitVirtqueue::Used::kAlign;
-
   memzero(g_vq_dma_buf, sizeof(g_vq_dma_buf));
   uint64_t vq_phys = reinterpret_cast<uint64_t>(g_vq_dma_buf);
 
-  // Legacy 设备不支持 event_idx
-  virtio_driver::SplitVirtqueue vq(g_vq_dma_buf, vq_phys, kQueueSize, false,
-                                   used_align);
+  virtio_driver::SplitVirtqueue vq(g_vq_dma_buf, vq_phys, kQueueSize, false);
   EXPECT_TRUE(vq.IsValid(), "SplitVirtqueue initialization");
   EXPECT_EQ(kQueueSize, vq.Size(), "Virtqueue size matches");
   EXPECT_EQ(kQueueSize, vq.NumFree(),
@@ -203,16 +191,10 @@ void test_virtio_blk() {
   // === 测试 5: 验证协商特性 ===
   {
     uint64_t features = blk.GetNegotiatedFeatures();
-    if (is_legacy) {
-      // Legacy 设备不支持 VERSION_1
-      LOG("Legacy device - VERSION_1 not expected");
-      EXPECT_TRUE(true, "Legacy device features negotiated");
-    } else {
-      bool has_version1 =
-          (features & static_cast<uint64_t>(
-                          virtio_driver::ReservedFeature::kVersion1)) != 0;
-      EXPECT_TRUE(has_version1, "Negotiated features include VERSION_1");
-    }
+    bool has_version1 =
+        (features &
+         static_cast<uint64_t>(virtio_driver::ReservedFeature::kVersion1)) != 0;
+    EXPECT_TRUE(has_version1, "Negotiated features include VERSION_1");
     LOG_HEX("Negotiated features", features);
   }
 

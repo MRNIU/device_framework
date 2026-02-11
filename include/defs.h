@@ -2,11 +2,12 @@
  * @copyright Copyright The virtio_driver Contributors
  */
 
-#ifndef VIRTIO_DEFS_H
-#define VIRTIO_DEFS_H
+#ifndef VIRTIO_DRIVER_INCLUDE_DEFS_H_
+#define VIRTIO_DRIVER_INCLUDE_DEFS_H_
 
 #include <cstdint>
 #include <type_traits>
+#include <utility>
 
 namespace virtio_driver {
 
@@ -101,11 +102,11 @@ class Logger {
   template <typename... Args>
   void Log(const char* format, Args&&... args) const {
     if constexpr (!std::is_same<LogFunc, std::nullptr_t>::value) {
-      LogFunc{}(format, args...);
+      LogFunc{}(format, std::forward<Args>(args)...);
     }
   }
 };
 
 }  // namespace virtio_driver
 
-#endif /* VIRTIO_DEFS_H */
+#endif /* VIRTIO_DRIVER_INCLUDE_DEFS_H_ */

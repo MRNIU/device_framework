@@ -8,8 +8,8 @@
  * @copyright Copyright The virtio_driver Contributors
  */
 
-#ifndef VIRTIO_DRIVER_SRC_INCLUDE_PLATFORM_H_
-#define VIRTIO_DRIVER_SRC_INCLUDE_PLATFORM_H_
+#ifndef VIRTIO_DRIVER_INCLUDE_PLATFORM_H_
+#define VIRTIO_DRIVER_INCLUDE_PLATFORM_H_
 
 #include <cstddef>
 
@@ -56,4 +56,4 @@ struct PlatformOps {
 
 }  // namespace virtio_driver
 
-#endif /* VIRTIO_DRIVER_SRC_INCLUDE_PLATFORM_H_ */
+#endif /* VIRTIO_DRIVER_INCLUDE_PLATFORM_H_ */

@@ -25,7 +25,7 @@ include/                        # 公共头文件（header-only 库）
 ├── platform.h                  # PlatformOps 结构（内存分配/屏障/地址转换的函数指针）
 ├── transport/
 │   ├── transport.hpp           # Transport<LogFunc> 抽象基类（纯虚接口）
-│   ├── mmio.hpp                # MmioTransport<LogFunc>（Legacy v1 + Modern v2）
+│   ├── mmio.hpp                # MmioTransport<LogFunc>（Modern v2 only）
 │   └── pci.hpp                 # PciTransport（占位，@todo）
 ├── device/
 │   ├── device_initializer.hpp  # DeviceInitializer<LogFunc>（标准初始化序列编排）
@@ -93,13 +93,12 @@ Transport 构造 → DeviceInitializer::Init(features) → SetupQueue() → Acti
 ### 编译约束（最重要）
 - **禁止动态内存分配**：不可使用 `new` / `delete` / `malloc` / `free` / STL 容器
 - **禁用标准库**：编译选项 `-nostdlib -fno-builtin -fno-rtti -fno-exceptions`
-- **Freestanding 环境**：仅可使用 freestanding 头文件（`<cstdint>` `<cstddef>` `<type_traits>` `<expected>` 等），参考 https://en.cppreference.com/w/cpp/freestanding.html
+- **Freestanding 环境**：仅可使用 freestanding 头文件（`<cstdint>` `<cstddef>` `<type_traits>` `<expected>` `<array>` 等），参考 https://en.cppreference.com/w/cpp/freestanding.html
 - **所有结构体需 `__attribute__((packed))`**（与硬件/DMA 共享的结构）
 
 ### 代码风格
 - **格式化**：Google Style，由 `.clang-format` 强制执行
 - **静态检查**：`.clang-tidy` 配置（启用 bugprone/google/misc/modernize/performance/readability 检查）
-- **clang-tidy 抑制**：复杂测试函数使用 `// NOLINTNEXTLINE(readability-function-cognitive-complexity)`
 - **CMake 格式**：由 `.cmake-format.json` 配置
 
 ### 命名约定
@@ -161,8 +160,8 @@ subject: ≤50 字符，不加句号
 
 ## 常见陷阱
 
-- QEMU virt 机器的 MMIO 设备默认为 **Legacy (v1)**，必须处理 `GuestPageSize` / `QueuePFN` / `QueueAlign` 寄存器以及 Used Ring 按页对齐
-- Legacy 设备不支持 `VIRTIO_F_VERSION_1`、`VIRTIO_F_EVENT_IDX` 等 modern 特性
+- QEMU virt 机器的 MMIO 设备默认为 Legacy (v1)，需要添加 `-global virtio-mmio.force-legacy=false` 强制使用 Modern (v2) 模式。`test_run` 和 `test_debug` 目标已配置此选项
+- 本项目仅支持 Modern VirtIO (v2, virtio 1.0+)，不支持 Legacy 设备。`VirtioBlk::Create()` 会强制要求协商 `VIRTIO_F_VERSION_1`
 - `volatile` 指针用于所有 MMIO 寄存器访问和 DMA 共享内存
 - 裸机无 `printf`，调试输出使用 `uart_puts()` / `uart_put_hex()`
 - `make test_run` 会阻塞终端（QEMU 前台运行），用 `timeout 5 make test_run || true` 做 CI 自动化测试

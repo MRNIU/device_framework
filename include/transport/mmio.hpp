@@ -2,8 +2,8 @@
  * @copyright Copyright The virtio_driver Contributors
  */
 
-#ifndef VIRTIO_DRIVER_SRC_INCLUDE_TRANSPORT_MMIO_HPP_
-#define VIRTIO_DRIVER_SRC_INCLUDE_TRANSPORT_MMIO_HPP_
+#ifndef VIRTIO_DRIVER_INCLUDE_TRANSPORT_MMIO_HPP_
+#define VIRTIO_DRIVER_INCLUDE_TRANSPORT_MMIO_HPP_
 
 #include "expected.hpp"
 #include "transport.hpp"
@@ -28,12 +28,6 @@ enum class InterruptStatus : uint32_t {
 static constexpr uint32_t kMmioMagicValue = 0x74726976;
 
 /**
- * @brief Legacy VirtIO MMIO 版本号（VirtIO 0.9.5 及更早）
- * @see virtio-v1.2#4.2.2
- */
-static constexpr uint32_t kMmioVersionLegacy = 0x01;
-
-/**
  * @brief Modern VirtIO MMIO 版本号（VirtIO 1.0+）
  * @see virtio-v1.2#4.2.2
  */
@@ -45,11 +39,11 @@ static constexpr uint32_t kMmioVersionModern = 0x02;
  * MMIO virtio 设备通过一组内存映射的控制寄存器和设备特定配置空间进行访问。
  * 所有寄存器值采用小端格式组织。
  *
- * 支持 Legacy VirtIO (v1) 和 Modern VirtIO (v2, virtio 1.0+) 两种版本。
+ * 仅支持 Modern VirtIO (v2, virtio 1.0+)。
  *
  * 寄存器布局包括：
  * - 魔数（MagicValue）: 0x74726976
- * - 版本号（Version）: 0x1（legacy）或 0x2（modern）
+ * - 版本号（Version）: 0x2（modern）
  * - 设备/供应商 ID
  * - 特性位配置
  * - 队列配置
@@ -78,15 +72,12 @@ class MmioTransport final : public Transport<LogFunc> {
     // 0x018 ~ 0x01F: reserved
     kDriverFeatures = 0x020,
     kDriverFeaturesSel = 0x024,
-    /// Legacy (v1) only: Guest page size
-    kGuestPageSize = 0x028,
+    // 0x028 ~ 0x02F: reserved
     kQueueSel = 0x030,
     kQueueNumMax = 0x034,
     kQueueNum = 0x038,
-    /// Legacy (v1) only: Queue alignment boundary
-    kQueueAlign = 0x03C,
-    /// Legacy (v1) only: Queue PFN (Physical Frame Number)
-    kQueuePfn = 0x040,
+    // 0x03C ~ 0x03F: reserved
+    // 0x040 ~ 0x043: reserved
     kQueueReady = 0x044,
     // 0x048 ~ 0x04F: reserved
     kQueueNotify = 0x050,
@@ -132,6 +123,12 @@ class MmioTransport final : public Transport<LogFunc> {
    */
   explicit MmioTransport(uint64_t base)
       : base_(base), is_valid_(false), device_id_(0), vendor_id_(0) {
+    // 验证基地址有效性
+    if (base == 0) {
+      Transport<LogFunc>::Log("MMIO base address is null");
+      return;
+    }
+
     // 验证魔数
     auto magic = Read<uint32_t>(MmioReg::kMagicValue);
     if (magic != kMmioMagicValue) {
@@ -141,12 +138,11 @@ class MmioTransport final : public Transport<LogFunc> {
       return;
     }
 
-    // 验证版本号（支持 legacy v1 和 modern v2）
-    version_ = Read<uint32_t>(MmioReg::kVersion);
-    if (version_ != kMmioVersionLegacy && version_ != kMmioVersionModern) {
-      Transport<LogFunc>::Log(
-          "MMIO version not supported: expected %u or %u, got %u",
-          kMmioVersionLegacy, kMmioVersionModern, version_);
+    // 验证版本号（仅支持 modern v2）
+    auto version = Read<uint32_t>(MmioReg::kVersion);
+    if (version != kMmioVersionModern) {
+      Transport<LogFunc>::Log("MMIO version not supported: expected %u, got %u",
+                              kMmioVersionModern, version);
       return;
     }
 
@@ -163,18 +159,12 @@ class MmioTransport final : public Transport<LogFunc> {
     // 执行设备重置
     Transport<LogFunc>::Reset();
 
-    // Legacy (v1): 设置 Guest Page Size
-    if (version_ == kMmioVersionLegacy) {
-      Write<uint32_t>(MmioReg::kGuestPageSize, kLegacyPageSize);
-    }
-
     // 标记初始化成功
     is_valid_ = true;
 
     Transport<LogFunc>::Log(
-        "MMIO device initialized: DeviceID=0x%08x, VendorID=0x%08x, "
-        "Version=%u",
-        device_id_, vendor_id_, version_);
+        "MMIO device initialized: DeviceID=0x%08x, VendorID=0x%08x", device_id_,
+        vendor_id_);
   }
 
   /**
@@ -185,13 +175,6 @@ class MmioTransport final : public Transport<LogFunc> {
    * @return true 表示设备初始化成功，false 表示初始化失败
    */
   [[nodiscard]] auto IsValid() const -> bool { return is_valid_; }
-
-  /**
-   * @brief 获取 MMIO 版本号
-   *
-   * @return MMIO 版本（1 = legacy, 2 = modern）
-   */
-  [[nodiscard]] auto GetVersion() const -> uint32_t { return version_; }
 
   [[nodiscard]] auto GetDeviceId() const -> uint32_t override {
     return device_id_;
@@ -280,14 +263,8 @@ class MmioTransport final : public Transport<LogFunc> {
    */
   auto SetQueueDesc(uint32_t queue_idx, uint64_t addr) -> void override {
     Write<uint32_t>(MmioReg::kQueueSel, queue_idx);
-    if (version_ == kMmioVersionLegacy) {
-      // Legacy: 记住描述符表地址，在 SetQueueReady 时写入 QueuePFN
-      legacy_queue_pfn_addr_ = addr;
-    } else {
-      Write<uint32_t>(MmioReg::kQueueDescLow, static_cast<uint32_t>(addr));
-      Write<uint32_t>(MmioReg::kQueueDescHigh,
-                      static_cast<uint32_t>(addr >> 32));
-    }
+    Write<uint32_t>(MmioReg::kQueueDescLow, static_cast<uint32_t>(addr));
+    Write<uint32_t>(MmioReg::kQueueDescHigh, static_cast<uint32_t>(addr >> 32));
   }
 
   /**
@@ -297,10 +274,6 @@ class MmioTransport final : public Transport<LogFunc> {
    * @param addr Available Ring 的 64 位物理地址
    */
   auto SetQueueAvail(uint32_t queue_idx, uint64_t addr) -> void override {
-    if (version_ == kMmioVersionLegacy) {
-      // Legacy: Avail Ring 位置由 QueuePFN + 固定偏移确定，无需单独设置
-      return;
-    }
     Write<uint32_t>(MmioReg::kQueueSel, queue_idx);
     Write<uint32_t>(MmioReg::kQueueDriverLow, static_cast<uint32_t>(addr));
     Write<uint32_t>(MmioReg::kQueueDriverHigh,
@@ -314,10 +287,6 @@ class MmioTransport final : public Transport<LogFunc> {
    * @param addr Used Ring 的 64 位物理地址
    */
   auto SetQueueUsed(uint32_t queue_idx, uint64_t addr) -> void override {
-    if (version_ == kMmioVersionLegacy) {
-      // Legacy: Used Ring 位置由 QueuePFN + 固定偏移确定，无需单独设置
-      return;
-    }
     Write<uint32_t>(MmioReg::kQueueSel, queue_idx);
     Write<uint32_t>(MmioReg::kQueueDeviceLow, static_cast<uint32_t>(addr));
     Write<uint32_t>(MmioReg::kQueueDeviceHigh,
@@ -326,27 +295,12 @@ class MmioTransport final : public Transport<LogFunc> {
 
   [[nodiscard]] auto GetQueueReady(uint32_t queue_idx) -> bool override {
     Write<uint32_t>(MmioReg::kQueueSel, queue_idx);
-    if (version_ == kMmioVersionLegacy) {
-      return Read<uint32_t>(MmioReg::kQueuePfn) != 0;
-    }
     return Read<uint32_t>(MmioReg::kQueueReady) != 0;
   }
 
   auto SetQueueReady(uint32_t queue_idx, bool ready) -> void override {
     Write<uint32_t>(MmioReg::kQueueSel, queue_idx);
-    if (version_ == kMmioVersionLegacy) {
-      if (ready) {
-        // Legacy: 写入 QueueAlign 和 QueuePFN 激活队列
-        Write<uint32_t>(MmioReg::kQueueAlign, kLegacyPageSize);
-        Write<uint32_t>(
-            MmioReg::kQueuePfn,
-            static_cast<uint32_t>(legacy_queue_pfn_addr_ / kLegacyPageSize));
-      } else {
-        Write<uint32_t>(MmioReg::kQueuePfn, 0);
-      }
-    } else {
-      Write<uint32_t>(MmioReg::kQueueReady, ready ? 1 : 0);
-    }
+    Write<uint32_t>(MmioReg::kQueueReady, ready ? 1 : 0);
   }
 
   /**
@@ -418,6 +372,9 @@ class MmioTransport final : public Transport<LogFunc> {
     uint64_t value;
 
     // 循环直到读取到一致的配置（generation counter 相同）
+    // 最多重试 kMaxConfigRetries 次以防止设备持续更新导致无限循环
+    static constexpr uint32_t kMaxConfigRetries = 1000;
+    uint32_t retries = 0;
     do {
       gen1 = GetConfigGeneration();
 
@@ -428,7 +385,7 @@ class MmioTransport final : public Transport<LogFunc> {
       value = (hi << 32) | lo;
 
       gen2 = GetConfigGeneration();
-    } while (gen1 != gen2);
+    } while (gen1 != gen2 && ++retries < kMaxConfigRetries);
 
     return value;
   }
@@ -460,11 +417,9 @@ class MmioTransport final : public Transport<LogFunc> {
    * @tparam T 要写入的数据类型（uint8_t, uint16_t, uint32_t, uint64_t）
    * @param offset 寄存器偏移量
    * @param val 要写入的值
-   * @note const 因为写入目标是硬件寄存器，不改变 C++ 对象状态。
-   *       MMIO 某些读操作需要先写选择寄存器（如 DEVICE_FEATURES_SEL）
    */
   template <typename T>
-  auto Write(size_t offset, T val) const -> void {
+  auto Write(size_t offset, T val) -> void {
     *reinterpret_cast<volatile T*>(base_ + offset) = val;
   }
 
@@ -474,22 +429,13 @@ class MmioTransport final : public Transport<LogFunc> {
   /// 设备是否成功初始化
   bool is_valid_;
 
-  /// MMIO 版本号（缓存以避免重复读取）
-  uint32_t version_;
-
   /// 设备 ID（缓存以避免重复读取）
   uint32_t device_id_;
 
   /// 供应商 ID（缓存以避免重复读取）
   uint32_t vendor_id_;
-
-  /// Legacy: 队列基地址（在 SetQueueReady 时写入 QueuePFN）
-  uint64_t legacy_queue_pfn_addr_ = 0;
-
-  /// Legacy 模式使用的页大小
-  static constexpr uint32_t kLegacyPageSize = 4096;
 };
 
 }  // namespace virtio_driver
 
-#endif /* VIRTIO_DRIVER_SRC_INCLUDE_TRANSPORT_MMIO_HPP_ */
+#endif /* VIRTIO_DRIVER_INCLUDE_TRANSPORT_MMIO_HPP_ */

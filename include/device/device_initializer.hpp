@@ -2,8 +2,8 @@
  * @copyright Copyright The virtio_driver Contributors
  */
 
-#ifndef VIRTIO_DRIVER_SRC_INCLUDE_DEVICE_INITIALIZER_HPP_
-#define VIRTIO_DRIVER_SRC_INCLUDE_DEVICE_INITIALIZER_HPP_
+#ifndef VIRTIO_DRIVER_INCLUDE_DEVICE_DEVICE_INITIALIZER_HPP_
+#define VIRTIO_DRIVER_INCLUDE_DEVICE_DEVICE_INITIALIZER_HPP_
 
 #include "expected.hpp"
 #include "transport/transport.hpp"
@@ -235,4 +235,4 @@ class DeviceInitializer : public Logger<LogFunc> {
 
 }  // namespace virtio_driver
 
-#endif /* VIRTIO_DRIVER_SRC_INCLUDE_DEVICE_INITIALIZER_HPP_ */
+#endif /* VIRTIO_DRIVER_INCLUDE_DEVICE_DEVICE_INITIALIZER_HPP_ */

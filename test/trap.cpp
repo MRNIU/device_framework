@@ -39,12 +39,12 @@ extern "C" void trap_handler(uint64_t cause, uint64_t epc, uint64_t tval) {
           uart_puts("\n");
 
           // 根据 IRQ 处理不同的设备中断
-          if (irq >= VIRTIO0_IRQ && irq <= VIRTIO7_IRQ) {
+          if (irq >= kVirtio0Irq && irq <= kVirtio7Irq) {
             uart_puts("  Device: VirtIO");
-            uart_put_hex(irq - VIRTIO0_IRQ);
+            uart_put_hex(irq - kVirtio0Irq);
             uart_puts("\n");
             // TODO: 调用具体 VirtIO 设备的中断处理函数
-          } else if (irq == UART0_IRQ) {
+          } else if (irq == kUart0Irq) {
             uart_puts("  Device: UART\n");
             uart_handle_interrupt();
           } else {

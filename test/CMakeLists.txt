@@ -91,6 +91,8 @@ ADD_CUSTOM_TARGET (
     COMMAND
         qemu-system-riscv64 -nographic -serial stdio -machine virt -kernel
         $<TARGET_FILE:${PROJECT_NAME}> -m 128M -s -S
+        # 强制使用 modern MMIO 模式，避免 legacy 模式下的兼容性问题
+        -global virtio-mmio.force-legacy=false
         # VirtIO 块设备 (块存储)
         -drive
         file=${CMAKE_BINARY_DIR}/images/test.img,if=none,format=raw,id=hd0

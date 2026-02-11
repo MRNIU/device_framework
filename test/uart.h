@@ -11,7 +11,7 @@
 /**
  * @brief UART 基地址 (QEMU virt machine)
  */
-#define UART0_BASE 0x10000000UL
+constexpr uint64_t kUart0Base = 0x10000000UL;
 
 /**
  * @brief 初始化 UART

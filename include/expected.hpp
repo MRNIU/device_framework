@@ -2,8 +2,8 @@
  * @copyright Copyright The virtio_driver Contributors
  */
 
-#ifndef VIRTIO_DRIVER_SRC_INCLUDE_EXPECTED_HPP_
-#define VIRTIO_DRIVER_SRC_INCLUDE_EXPECTED_HPP_
+#ifndef VIRTIO_DRIVER_INCLUDE_EXPECTED_HPP_
+#define VIRTIO_DRIVER_INCLUDE_EXPECTED_HPP_
 
 #include <cstddef>
 #include <cstdint>
@@ -108,9 +108,25 @@ struct Error {
   }
 
   /**
-   * @brief 隐式转换为 ErrorCode，方便比较
+   * @brief 显式转换为 ErrorCode
    */
   explicit constexpr operator ErrorCode() const { return code; }
+
+  /// @name 比较运算符
+  /// @{
+  [[nodiscard]] constexpr auto operator==(const Error& other) const -> bool {
+    return code == other.code;
+  }
+  [[nodiscard]] constexpr auto operator!=(const Error& other) const -> bool {
+    return code != other.code;
+  }
+  [[nodiscard]] constexpr auto operator==(ErrorCode other) const -> bool {
+    return code == other;
+  }
+  [[nodiscard]] constexpr auto operator!=(ErrorCode other) const -> bool {
+    return code != other;
+  }
+  /// @}
 };
 
 /// std::expected 别名模板
@@ -119,4 +135,4 @@ using Expected = std::expected<T, Error>;
 
 }  // namespace virtio_driver
 
-#endif /* VIRTIO_DRIVER_SRC_INCLUDE_EXPECTED_HPP_ */
+#endif /* VIRTIO_DRIVER_INCLUDE_EXPECTED_HPP_ */

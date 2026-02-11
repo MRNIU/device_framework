@@ -19,6 +19,8 @@ Checks: >
   -readability-magic-numbers,
   -performance-no-int-to-ptr,
   -modernize-use-std-print,
-  -bugprone-reserved-identifier
+  -bugprone-reserved-identifier,
+  -modernize-avoid-c-arrays,
+  -readability-function-cognitive-complexity
 FormatStyle: google
 ...

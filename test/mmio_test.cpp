@@ -44,7 +44,6 @@ constexpr uint64_t kVirtioMmioSize = 0x1000;
 constexpr int kMaxDevices = 8;
 }  // namespace
 
-// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 void test_virtio_mmio_device_status() {
   uart_puts("\n");
   uart_puts("╔════════════════════════════════════════╗\n");
@@ -108,16 +107,9 @@ void test_virtio_mmio_device_status() {
     {
       auto version = *reinterpret_cast<volatile uint32_t*>(
           base + transport.MmioReg::kVersion);
-      // QEMU MMIO 设备可能报告 legacy 或 modern 版本
-      EXPECT_TRUE(version == virtio_driver::kMmioVersionLegacy ||
-                      version == virtio_driver::kMmioVersionModern,
-                  "Version should be 1 (legacy) or 2 (modern)");
+      EXPECT_EQ(virtio_driver::kMmioVersionModern, version,
+                "Version should be 2 (modern)");
       LOG_HEX("  Version", version);
-      if (version == virtio_driver::kMmioVersionLegacy) {
-        LOG("    -> Legacy VirtIO (version 1)");
-      } else if (version == virtio_driver::kMmioVersionModern) {
-        LOG("    -> Modern VirtIO (version 2)");
-      }
     }
 
     // 测试 3: 读取设备 ID 并识别设备类型
@@ -196,8 +188,7 @@ void test_virtio_mmio_device_status() {
       LOG_HEX("  Device features (high 32)",
               static_cast<uint32_t>(features >> 32));
       // 设备特性至少应该有某些位被设置
-      EXPECT_TRUE(features != 0 || features == 0,
-                  "Device features read completed");
+      LOG("  Device features read completed");
     }
 
     // 测试 8: 获取队列最大容量
@@ -206,8 +197,7 @@ void test_virtio_mmio_device_status() {
       auto queue_max = transport.GetQueueNumMax(0);
       LOG_HEX("  Queue 0 max size", queue_max);
       // 队列最大容量通常大于 0（除非设备不支持队列 0）
-      EXPECT_TRUE(queue_max == 0 || queue_max > 0,
-                  "Queue max size read completed");
+      LOG("  Queue max size read completed");
     }
 
     uart_puts("\n");
