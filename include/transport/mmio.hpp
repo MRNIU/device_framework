@@ -78,11 +78,15 @@ class MmioTransport final : public Transport<LogFunc> {
     // 0x018 ~ 0x01F: reserved
     kDriverFeatures = 0x020,
     kDriverFeaturesSel = 0x024,
-    // 0x028 ~ 0x02F: reserved
+    /// Legacy (v1) only: Guest page size
+    kGuestPageSize = 0x028,
     kQueueSel = 0x030,
     kQueueNumMax = 0x034,
     kQueueNum = 0x038,
-    // 0x03C ~ 0x043: reserved
+    /// Legacy (v1) only: Queue alignment boundary
+    kQueueAlign = 0x03C,
+    /// Legacy (v1) only: Queue PFN (Physical Frame Number)
+    kQueuePfn = 0x040,
     kQueueReady = 0x044,
     // 0x048 ~ 0x04F: reserved
     kQueueNotify = 0x050,
@@ -158,6 +162,11 @@ class MmioTransport final : public Transport<LogFunc> {
 
     // 执行设备重置
     Transport<LogFunc>::Reset();
+
+    // Legacy (v1): 设置 Guest Page Size
+    if (version_ == kMmioVersionLegacy) {
+      Write<uint32_t>(MmioReg::kGuestPageSize, kLegacyPageSize);
+    }
 
     // 标记初始化成功
     is_valid_ = true;
@@ -271,8 +280,14 @@ class MmioTransport final : public Transport<LogFunc> {
    */
   auto SetQueueDesc(uint32_t queue_idx, uint64_t addr) -> void override {
     Write<uint32_t>(MmioReg::kQueueSel, queue_idx);
-    Write<uint32_t>(MmioReg::kQueueDescLow, static_cast<uint32_t>(addr));
-    Write<uint32_t>(MmioReg::kQueueDescHigh, static_cast<uint32_t>(addr >> 32));
+    if (version_ == kMmioVersionLegacy) {
+      // Legacy: 记住描述符表地址，在 SetQueueReady 时写入 QueuePFN
+      legacy_queue_pfn_addr_ = addr;
+    } else {
+      Write<uint32_t>(MmioReg::kQueueDescLow, static_cast<uint32_t>(addr));
+      Write<uint32_t>(MmioReg::kQueueDescHigh,
+                      static_cast<uint32_t>(addr >> 32));
+    }
   }
 
   /**
@@ -282,6 +297,10 @@ class MmioTransport final : public Transport<LogFunc> {
    * @param addr Available Ring 的 64 位物理地址
    */
   auto SetQueueAvail(uint32_t queue_idx, uint64_t addr) -> void override {
+    if (version_ == kMmioVersionLegacy) {
+      // Legacy: Avail Ring 位置由 QueuePFN + 固定偏移确定，无需单独设置
+      return;
+    }
     Write<uint32_t>(MmioReg::kQueueSel, queue_idx);
     Write<uint32_t>(MmioReg::kQueueDriverLow, static_cast<uint32_t>(addr));
     Write<uint32_t>(MmioReg::kQueueDriverHigh,
@@ -295,6 +314,10 @@ class MmioTransport final : public Transport<LogFunc> {
    * @param addr Used Ring 的 64 位物理地址
    */
   auto SetQueueUsed(uint32_t queue_idx, uint64_t addr) -> void override {
+    if (version_ == kMmioVersionLegacy) {
+      // Legacy: Used Ring 位置由 QueuePFN + 固定偏移确定，无需单独设置
+      return;
+    }
     Write<uint32_t>(MmioReg::kQueueSel, queue_idx);
     Write<uint32_t>(MmioReg::kQueueDeviceLow, static_cast<uint32_t>(addr));
     Write<uint32_t>(MmioReg::kQueueDeviceHigh,
@@ -303,12 +326,27 @@ class MmioTransport final : public Transport<LogFunc> {
 
   [[nodiscard]] auto GetQueueReady(uint32_t queue_idx) -> bool override {
     Write<uint32_t>(MmioReg::kQueueSel, queue_idx);
+    if (version_ == kMmioVersionLegacy) {
+      return Read<uint32_t>(MmioReg::kQueuePfn) != 0;
+    }
     return Read<uint32_t>(MmioReg::kQueueReady) != 0;
   }
 
   auto SetQueueReady(uint32_t queue_idx, bool ready) -> void override {
     Write<uint32_t>(MmioReg::kQueueSel, queue_idx);
-    Write<uint32_t>(MmioReg::kQueueReady, ready ? 1 : 0);
+    if (version_ == kMmioVersionLegacy) {
+      if (ready) {
+        // Legacy: 写入 QueueAlign 和 QueuePFN 激活队列
+        Write<uint32_t>(MmioReg::kQueueAlign, kLegacyPageSize);
+        Write<uint32_t>(
+            MmioReg::kQueuePfn,
+            static_cast<uint32_t>(legacy_queue_pfn_addr_ / kLegacyPageSize));
+      } else {
+        Write<uint32_t>(MmioReg::kQueuePfn, 0);
+      }
+    } else {
+      Write<uint32_t>(MmioReg::kQueueReady, ready ? 1 : 0);
+    }
   }
 
   /**
@@ -444,6 +482,12 @@ class MmioTransport final : public Transport<LogFunc> {
 
   /// 供应商 ID（缓存以避免重复读取）
   uint32_t vendor_id_;
+
+  /// Legacy: 队列基地址（在 SetQueueReady 时写入 QueuePFN）
+  uint64_t legacy_queue_pfn_addr_ = 0;
+
+  /// Legacy 模式使用的页大小
+  static constexpr uint32_t kLegacyPageSize = 4096;
 };
 
 }  // namespace virtio_driver

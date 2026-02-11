@@ -8,13 +8,19 @@ ENABLE_LANGUAGE (CXX)
 
 # 添加可执行文件
 ADD_EXECUTABLE (
-    ${PROJECT_NAME} main.cpp boot.S uart.cpp trap.cpp test.cpp mmio_test.cpp
-    # virtio_blk_test.cpp
-)
+    ${PROJECT_NAME}
+    main.cpp
+    boot.S
+    uart.cpp
+    trap.cpp
+    test.cpp
+    mmio_test.cpp
+    virtio_blk_test.cpp)
 
 # 设置编译选项
-TARGET_COMPILE_OPTIONS (${PROJECT_NAME} PRIVATE -fno-stack-protector
-                                                -fno-builtin -nostdlib)
+TARGET_COMPILE_OPTIONS (
+    ${PROJECT_NAME} PRIVATE -fno-stack-protector -fno-builtin -nostdlib
+                            -fno-rtti -fno-exceptions)
 
 # 设置链接选项
 TARGET_LINK_OPTIONS (

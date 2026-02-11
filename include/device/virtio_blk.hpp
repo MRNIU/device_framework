@@ -331,20 +331,16 @@ class VirtioBlk : public Logger<LogFunc> {
     // 创建设备初始化器
     DeviceInitializer<LogFunc> initializer(transport);
 
-    // 1. 执行设备初始化并协商特性（VERSION_1 必需）
+    // 1. 执行设备初始化并协商特性（优先协商 VERSION_1，兼容 legacy 设备）
     uint64_t wanted_features =
         static_cast<uint64_t>(ReservedFeature::kVersion1) | driver_features;
     auto negotiated_result = initializer.Init(wanted_features);
     if (!negotiated_result) {
       return std::unexpected(negotiated_result.error());
     }
-    uint64_t negotiated = negotiated_result.value();
+    uint64_t negotiated = *negotiated_result;
 
-    // 必须支持 VERSION_1
-    if ((negotiated & static_cast<uint64_t>(ReservedFeature::kVersion1)) == 0) {
-      transport.SetStatus(Transport<LogFunc>::kFailed);
-      return std::unexpected(Error{ErrorCode::kFeatureNegotiationFailed});
-    }
+    // VERSION_1 为可选：modern 设备协商成功，legacy 设备跳过
 
     // 2. 配置 virtqueue 0（块设备仅使用一个队列）
     const uint32_t queue_idx = 0;
@@ -423,7 +419,7 @@ class VirtioBlk : public Logger<LogFunc> {
         break;
       }
 
-      auto elem = result.value();
+      auto elem = *result;
       uint16_t head = static_cast<uint16_t>(elem.id);
 
       // 释放描述符链：header -> data -> status
@@ -598,14 +594,14 @@ class VirtioBlk : public Logger<LogFunc> {
     if (!desc0_result.has_value()) {
       return std::unexpected(desc0_result.error());
     }
-    uint16_t desc0 = desc0_result.value();
+    uint16_t desc0 = *desc0_result;
 
     auto desc1_result = vq_.AllocDesc();
     if (!desc1_result.has_value()) {
       vq_.FreeDesc(desc0);
       return std::unexpected(desc1_result.error());
     }
-    uint16_t desc1 = desc1_result.value();
+    uint16_t desc1 = *desc1_result;
 
     auto desc2_result = vq_.AllocDesc();
     if (!desc2_result.has_value()) {
@@ -613,7 +609,7 @@ class VirtioBlk : public Logger<LogFunc> {
       vq_.FreeDesc(desc1);
       return std::unexpected(desc2_result.error());
     }
-    uint16_t desc2 = desc2_result.value();
+    uint16_t desc2 = *desc2_result;
 
     // 填充请求头
     header->type = static_cast<uint32_t>(type);

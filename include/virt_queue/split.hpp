@@ -198,7 +198,8 @@ class SplitVirtqueue {
    * @see virtio-v1.2#2.6 Split Virtqueues
    */
   [[nodiscard]] static constexpr auto CalcSize(uint16_t queue_size,
-                                               bool event_idx = true)
+                                               bool event_idx = true,
+                                               size_t used_align = Used::kAlign)
       -> size_t {
     // Descriptor Table: sizeof(Desc) * queue_size
     size_t desc_total = static_cast<size_t>(sizeof(Desc)) * queue_size;
@@ -218,7 +219,7 @@ class SplitVirtqueue {
 
     // 按对齐要求排列
     size_t avail_off = AlignUp(desc_total, Avail::kAlign);
-    size_t used_off = AlignUp(avail_off + avail_total, Used::kAlign);
+    size_t used_off = AlignUp(avail_off + avail_total, used_align);
 
     return used_off + used_total;
   }
@@ -233,17 +234,18 @@ class SplitVirtqueue {
    * @param phys_base DMA 缓冲区的客户机物理基地址
    * @param queue_size 队列大小（必须为 2 的幂，范围：1 ~ 32768）
    * @param event_idx 是否启用 VIRTIO_F_EVENT_IDX 特性
+   * @param used_align Used Ring 的对齐要求（modern = 4，legacy MMIO = 4096）
    *
    * @pre dma_buf != nullptr
    * @pre queue_size 为 2 的幂
-   * @pre dma_buf 指向的内存大小 >= CalcSize(queue_size, event_idx)
+   * @pre dma_buf 指向的内存大小 >= CalcSize(queue_size, event_idx, used_align)
    * @pre dma_buf 已清零
    * @post IsValid() == true（前置条件满足时）
    * @post 所有描述符处于空闲链表中
    * @see virtio-v1.2#2.7
    */
   SplitVirtqueue(void* dma_buf, uint64_t phys_base, uint16_t queue_size,
-                 bool event_idx = true)
+                 bool event_idx = true, size_t used_align = Used::kAlign)
       : queue_size_(queue_size),
         event_idx_enabled_(event_idx),
         phys_base_(phys_base) {
@@ -264,7 +266,7 @@ class SplitVirtqueue {
     if (event_idx) {
       used_total += sizeof(uint16_t);
     }
-    used_offset_ = AlignUp(avail_offset_ + avail_total, Used::kAlign);
+    used_offset_ = AlignUp(avail_offset_ + avail_total, used_align);
 
     // 设置指针
     auto* base = static_cast<uint8_t*>(dma_buf);

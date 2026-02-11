@@ -51,7 +51,7 @@ void test_main(uint32_t hart_id, uint8_t* dtb) {
   test_virtio_mmio_device_status();
 
   // 测试 VirtIO 块设备
-  // test_virtio_blk();
+  test_virtio_blk();
 
   uart_puts("[INFO] System ready. Try typing on the console...\n");
 }
