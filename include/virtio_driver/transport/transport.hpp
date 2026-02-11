@@ -51,11 +51,18 @@ class Transport : public Logger<LogFunc> {
     kFailed = 128,
   };
 
-  /**
-   * @brief 析构函数
-   */
+  /// @name 构造/析构函数
+  /// @{
+ protected:
+  Transport() = default;
+  Transport(Transport&&) noexcept = default;
+  auto operator=(Transport&&) noexcept -> Transport& = default;
+  Transport(const Transport&) = delete;
+  auto operator=(const Transport&) -> Transport& = delete;
   virtual ~Transport() = default;
+  /// @}
 
+ public:
   /**
    * @brief 检查传输层是否成功初始化
    *

@@ -176,6 +176,21 @@ class MmioTransport final : public Transport<LogFunc> {
    */
   [[nodiscard]] auto IsValid() const -> bool { return is_valid_; }
 
+  /// @name 构造/析构函数
+  /// @{
+  MmioTransport(MmioTransport&& other) noexcept
+      : Transport<LogFunc>(std::move(other)),
+        base_(other.base_),
+        is_valid_(other.is_valid_),
+        device_id_(other.device_id_),
+        vendor_id_(other.vendor_id_) {
+    other.is_valid_ = false;
+  }
+  auto operator=(MmioTransport&&) noexcept -> MmioTransport& = delete;
+  MmioTransport(const MmioTransport&) = delete;
+  auto operator=(const MmioTransport&) -> MmioTransport& = delete;
+  /// @}
+
   [[nodiscard]] auto GetDeviceId() const -> uint32_t override {
     return device_id_;
   }

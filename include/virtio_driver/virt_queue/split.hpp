@@ -540,9 +540,27 @@ class SplitVirtqueue {
   /// @name 构造/析构函数
   /// @{
   SplitVirtqueue(const SplitVirtqueue&) = delete;
-  SplitVirtqueue(SplitVirtqueue&&) = delete;
   auto operator=(const SplitVirtqueue&) -> SplitVirtqueue& = delete;
   auto operator=(SplitVirtqueue&&) -> SplitVirtqueue& = delete;
+  SplitVirtqueue(SplitVirtqueue&& other) noexcept
+      : desc_(other.desc_),
+        avail_(other.avail_),
+        used_(other.used_),
+        queue_size_(other.queue_size_),
+        free_head_(other.free_head_),
+        num_free_(other.num_free_),
+        last_used_idx_(other.last_used_idx_),
+        phys_base_(other.phys_base_),
+        desc_offset_(other.desc_offset_),
+        avail_offset_(other.avail_offset_),
+        used_offset_(other.used_offset_),
+        event_idx_enabled_(other.event_idx_enabled_),
+        is_valid_(other.is_valid_) {
+    other.is_valid_ = false;
+    other.desc_ = nullptr;
+    other.avail_ = nullptr;
+    other.used_ = nullptr;
+  }
   ~SplitVirtqueue() = default;
   /// @}
 

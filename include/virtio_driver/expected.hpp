@@ -45,6 +45,8 @@ enum class ErrorCode : uint32_t {
   kNotSupported,
   /// 无效的参数
   kInvalidArgument,
+  /// 操作超时
+  kTimeout,
 };
 
 /**
@@ -86,6 +88,8 @@ constexpr auto GetErrorMessage(ErrorCode code) -> const char* {
       return "Operation not supported";
     case ErrorCode::kInvalidArgument:
       return "Invalid argument";
+    case ErrorCode::kTimeout:
+      return "Operation timed out";
     default:
       return "Unknown error";
   }
