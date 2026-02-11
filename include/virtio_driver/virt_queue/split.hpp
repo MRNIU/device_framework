@@ -104,7 +104,10 @@ class SplitVirtqueue {
     /// 驱动程序将下一个描述符条目放入环中的位置(模 queue_size) (little-endian)
     uint16_t idx;
     /// 可用描述符头索引数组 ring[queue_size] (little-endian)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
     uint16_t ring[];
+#pragma GCC diagnostic pop
 
     /**
      * @brief 获取 used_event 字段的指针
@@ -156,7 +159,10 @@ class SplitVirtqueue {
     /// 设备将下一个描述符条目放入环中的位置(模 queue_size) (little-endian)
     uint16_t idx;
     /// 已用描述符元素数组 ring[queue_size]
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
     UsedElem ring[];
+#pragma GCC diagnostic pop
 
     /**
      * @brief 获取 avail_event 字段的指针
