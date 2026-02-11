@@ -90,115 +90,57 @@ virtio_driver::PlatformOps platform_ops = {
 };
 ```
 
-#### 2. 创建传输层（以 MMIO 为例）
-
-```cpp
-#include "virtio_driver/transport/mmio.hpp"
-
-// MMIO 设备基地址（例如 QEMU virt 机器的第一个 VirtIO 设备）
-constexpr uint64_t kMmioBase = 0x10001000;
-
-virtio_driver::MmioTransport<> transport(kMmioBase);
-if (!transport.IsValid()) {
-    // 初始化失败（魔数错误、版本不支持、设备不存在等）
-    return;
-}
-```
-
-#### 3. 分配并初始化 Split Virtqueue
-
-```cpp
-#include "virtio_driver/virt_queue/split.hpp"
-
-constexpr uint16_t kQueueSize = 128;
-
-// 预分配 DMA 内存（页对齐，清零）
-alignas(4096) static uint8_t dma_buf[32768];
-memset(dma_buf, 0, sizeof(dma_buf));
-
-uint64_t dma_phys = platform_ops.virt_to_phys(dma_buf);
-
-virtio_driver::SplitVirtqueue vq(dma_buf, dma_phys, kQueueSize,
-                                  false /* event_idx */);
-if (!vq.IsValid()) {
-    return;
-}
-```
-
-#### 4. 创建块设备驱动
+#### 2. 预分配 DMA 内存
 
 ```cpp
 #include "virtio_driver/device/virtio_blk.hpp"
 
 using namespace virtio_driver::blk;
 
-// Create() 内部完成：特性协商 → 队列配置 → 设备激活
-auto blk_result = VirtioBlk<>::Create(transport, vq, platform_ops);
+// 计算所需的 DMA 缓冲区大小
+constexpr size_t kDmaSize = VirtioBlk<>::CalcDmaSize();
+
+// 预分配 DMA 内存（页对齐，清零）
+alignas(4096) static uint8_t dma_buf[kDmaSize];
+memset(dma_buf, 0, sizeof(dma_buf));
+```
+
+#### 3. 创建块设备并读写
+
+```cpp
+// MMIO 设备基地址（例如 QEMU virt 机器的第一个 VirtIO 设备）
+constexpr uint64_t kMmioBase = 0x10001000;
+
+// 创建块设备（内部自动完成传输层初始化、Virtqueue 配置、特性协商、设备激活）
+auto blk_result = VirtioBlk<>::Create(kMmioBase, dma_buf, platform_ops);
 if (!blk_result.has_value()) {
     // 初始化失败，可通过 blk_result.error().message() 获取错误描述
     return;
 }
 auto& blk = *blk_result;
-```
 
-#### 5. 读写操作
+// 读取设备配置
+uint64_t capacity = blk.GetCapacity();  // 设备容量（512B 扇区数）
+auto config = blk.ReadConfig();         // 完整配置信息
 
-```cpp
-// 所有缓冲区必须位于 DMA 可访问的内存中
-alignas(16) static BlkReqHeader req_header;
+// 数据缓冲区必须位于 DMA 可访问的内存中
 alignas(16) static uint8_t data_buf[kSectorSize];
-alignas(16) static uint8_t status;
 
-// --- 写入扇区 0 ---
+// 写入扇区 0（同步，内部自动处理请求构建、轮询、完成确认）
 for (size_t i = 0; i < kSectorSize; ++i) {
     data_buf[i] = static_cast<uint8_t>(i & 0xFF);
 }
-status = 0xFF;
-
-auto write_result = blk.Write(0 /* sector */, data_buf, &status, &req_header);
+auto write_result = blk.Write(0, data_buf);
 if (!write_result.has_value()) {
-    // 提交失败（描述符不足等）
-    return;
+    // 写入失败
 }
 
-// 等待设备完成（轮询方式）
-while (!vq.HasUsed()) {
-    // 忙等待或 wfi
-}
-
-// 处理完成的请求（释放描述符）
-uint32_t processed = blk.ProcessUsed();
-
-// 检查状态
-if (status == static_cast<uint8_t>(BlkStatus::kOk)) {
-    // 写入成功
-}
-
-// 确认中断
-blk.AckInterrupt();
-
-// --- 读取扇区 0 ---
+// 读取扇区 0（同步）
 memset(data_buf, 0, sizeof(data_buf));
-status = 0xFF;
-
-auto read_result = blk.Read(0 /* sector */, data_buf, &status, &req_header);
+auto read_result = blk.Read(0, data_buf);
 if (read_result.has_value()) {
-    while (!vq.HasUsed()) {}
-    blk.ProcessUsed();
-    blk.AckInterrupt();
     // data_buf 中即为读取到的数据
 }
-```
-
-#### 6. 读取设备配置
-
-```cpp
-auto config = blk.ReadConfig();
-uint64_t capacity = config.capacity;     // 设备容量（512B 扇区数）
-uint32_t blk_size = config.blk_size;     // 块大小（字节）
-
-// 或使用快捷方法
-uint64_t cap = blk.GetCapacity();
 ```
 
 ### 可选：启用日志
@@ -217,9 +159,9 @@ struct MyLogger {
     }
 };
 
-// 所有模板类使用相同的 LogFunc 类型
-virtio_driver::MmioTransport<MyLogger> transport(base);
-virtio_driver::blk::VirtioBlk<MyLogger> blk = /* ... */;
+// 模板参数注入日志
+auto blk_result = virtio_driver::blk::VirtioBlk<MyLogger>::Create(
+    mmio_base, dma_buf, platform_ops);
 ```
 
 不传 `LogFunc` 模板参数时默认为 `std::nullptr_t`，编译器会优化掉所有日志调用（零开销）。
@@ -268,20 +210,20 @@ Split Virtqueue 管理（描述符分配/提交/回收）：
 
 | 方法 | 说明 |
 |------|------|
-| `Create(transport, vq, platform, features)` | 静态工厂方法，完成完整初始化 |
-| `Read(sector, data, status, header)` | 异步读请求 |
-| `Write(sector, data, status, header)` | 异步写请求 |
+| `Create(mmio_base, dma_buf, platform, queue_size, features)` | 静态工厂方法，内部创建 Transport/Virtqueue 并完成完整初始化 |
+| `Read(sector, data)` | 同步读请求（内部完成轮询与状态检查） |
+| `Write(sector, data)` | 同步写请求（内部完成轮询与状态检查） |
 | `ReadConfig()` | 读设备配置空间 |
 | `GetCapacity()` | 获取设备容量（扇区数） |
-| `ProcessUsed()` | 处理已完成的请求，释放描述符 |
-| `AckInterrupt()` | 确认设备中断 |
+| `AckInterrupt()` | 确认设备中断（供中断处理程序调用） |
+| `CalcDmaSize(queue_size)` | 静态方法，计算 Virtqueue 所需 DMA 缓冲区大小 |
 
 ### 错误处理
 
 所有可失败操作返回 `Expected<T>`（即 `std::expected<T, Error>`）：
 
 ```cpp
-auto result = blk.Read(sector, data, &status, &header);
+auto result = blk.Read(0, data_buf);
 if (!result.has_value()) {
     ErrorCode code = result.error().code;
     const char* msg = result.error().message();
@@ -289,7 +231,7 @@ if (!result.has_value()) {
 }
 ```
 
-错误码定义在 `ErrorCode` 枚举中，包括：`kInvalidMagic`、`kFeatureNegotiationFailed`、`kNoFreeDescriptors`、`kIoError` 等。
+错误码定义在 `ErrorCode` 枚举中，包括：`kInvalidMagic`、`kFeatureNegotiationFailed`、`kNoFreeDescriptors`、`kIoError`、`kTimeout` 等。
 
 ## 设备初始化流程
 
