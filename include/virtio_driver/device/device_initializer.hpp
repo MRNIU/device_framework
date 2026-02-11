@@ -39,9 +39,10 @@ namespace virtio_driver {
  * @endcode
  *
  * @tparam Traits 平台环境特征类型
+ * @tparam TransportImpl 具体传输层类型（如 MmioTransport<Traits>）
  * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
  */
-template <VirtioEnvironmentTraits Traits = NullTraits>
+template <VirtioEnvironmentTraits Traits, typename TransportImpl>
 class DeviceInitializer {
  public:
   /**
@@ -50,7 +51,7 @@ class DeviceInitializer {
    * @param transport 传输层引用（必须在 DeviceInitializer 生命周期内保持有效）
    * @pre transport.IsValid() == true
    */
-  explicit DeviceInitializer(Transport<Traits>& transport)
+  explicit DeviceInitializer(TransportImpl& transport)
       : transport_(transport) {}
 
   /**
@@ -83,12 +84,12 @@ class DeviceInitializer {
     transport_.Reset();
 
     // 步骤 2: 设置 ACKNOWLEDGE 状态位
-    transport_.SetStatus(Transport<Traits>::kAcknowledge);
+    transport_.SetStatus(TransportImpl::kAcknowledge);
     Traits::Log("Set ACKNOWLEDGE status");
 
     // 步骤 3: 设置 DRIVER 状态位
-    transport_.SetStatus(Transport<Traits>::kAcknowledge |
-                         Transport<Traits>::kDriver);
+    transport_.SetStatus(TransportImpl::kAcknowledge |
+                         TransportImpl::kDriver);
     Traits::Log("Set DRIVER status");
 
     // 步骤 4: 特性协商
@@ -104,17 +105,17 @@ class DeviceInitializer {
     transport_.SetDriverFeatures(negotiated_features);
 
     // 步骤 5: 设置 FEATURES_OK 状态位
-    transport_.SetStatus(Transport<Traits>::kAcknowledge |
-                         Transport<Traits>::kDriver |
-                         Transport<Traits>::kFeaturesOk);
+    transport_.SetStatus(TransportImpl::kAcknowledge |
+                         TransportImpl::kDriver |
+                         TransportImpl::kFeaturesOk);
     Traits::Log("Set FEATURES_OK status");
 
     // 步骤 6: 验证 FEATURES_OK
     uint32_t status = transport_.GetStatus();
-    if ((status & Transport<Traits>::kFeaturesOk) == 0) {
+    if ((status & TransportImpl::kFeaturesOk) == 0) {
       // 设备拒绝了特性组合
       Traits::Log("Device rejected feature negotiation");
-      transport_.SetStatus(status | Transport<Traits>::kFailed);
+      transport_.SetStatus(status | TransportImpl::kFailed);
       return std::unexpected(Error{ErrorCode::kFeatureNegotiationFailed});
     }
 
@@ -202,11 +203,11 @@ class DeviceInitializer {
     Traits::Log("Activating device");
 
     uint32_t current_status = transport_.GetStatus();
-    transport_.SetStatus(current_status | Transport<Traits>::kDriverOk);
+    transport_.SetStatus(current_status | TransportImpl::kDriverOk);
 
     // 验证设备是否正常激活
     uint32_t new_status = transport_.GetStatus();
-    if ((new_status & Transport<Traits>::kDeviceNeedsReset) != 0) {
+    if ((new_status & TransportImpl::kDeviceNeedsReset) != 0) {
       Traits::Log("Device activation failed: device needs reset");
       return std::unexpected(Error{ErrorCode::kDeviceError});
     }
@@ -222,15 +223,15 @@ class DeviceInitializer {
    *
    * @return 传输层的引用
    */
-  [[nodiscard]] auto transport() -> Transport<Traits>& { return transport_; }
+  [[nodiscard]] auto transport() -> TransportImpl& { return transport_; }
 
-  [[nodiscard]] auto transport() const -> const Transport<Traits>& {
+  [[nodiscard]] auto transport() const -> const TransportImpl& {
     return transport_;
   }
 
  private:
   /// 底层传输层引用
-  Transport<Traits>& transport_;
+  TransportImpl& transport_;
 };
 
 }  // namespace virtio_driver

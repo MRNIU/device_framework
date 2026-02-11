@@ -356,7 +356,7 @@ class VirtioBlk {
     }
 
     // 3. 设备初始化序列
-    DeviceInitializer<Traits> initializer(transport);
+    DeviceInitializer<Traits, MmioTransport<Traits>> initializer(transport);
 
     uint64_t wanted_features =
         static_cast<uint64_t>(ReservedFeature::kVersion1) | driver_features;

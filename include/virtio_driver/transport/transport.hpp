@@ -12,23 +12,44 @@
 namespace virtio_driver {
 
 /**
- * @brief Virtio 传输层抽象基类
+ * @brief Virtio 传输层 CRTP 基类（零虚表开销）
  *
- * 该类提供了 virtio 设备传输层的统一接口，屏蔽底层传输机制的差异（MMIO、PCI
- * 等）。 传输层负责与设备进行通信，包括读写设备寄存器、配置
- * virtqueue、处理中断等。
+ * 通过 CRTP（Curiously Recurring Template Pattern）实现编译期多态，
+ * 消除虚表指针开销，实现零开销抽象。子类（MmioTransport、PciTransport）
+ * 继承此基类并提供具体的寄存器访问实现。
  *
- * 主要职责：
- * - 设备标识和状态管理
- * - 特性协商
- * - Virtqueue 配置
- * - 设备通知和中断处理
- * - 配置空间访问
+ * 基类仅提供通用逻辑方法（Reset、NeedsReset、IsActive、AcknowledgeInterrupt），
+ * 通过 CRTP 静态分发调用子类的具体实现。
  *
- * @note 所有子类必须实现所有纯虚函数
+ * 子类应提供以下方法（隐式接口，不再通过纯虚函数声明）：
+ * - IsValid() const -> bool
+ * - GetDeviceId() const -> uint32_t
+ * - GetVendorId() const -> uint32_t
+ * - GetStatus() const -> uint32_t
+ * - SetStatus(uint32_t) -> void
+ * - GetDeviceFeatures() -> uint64_t
+ * - SetDriverFeatures(uint64_t) -> void
+ * - GetQueueNumMax(uint32_t) -> uint32_t
+ * - SetQueueNum(uint32_t, uint32_t) -> void
+ * - SetQueueDesc(uint32_t, uint64_t) -> void
+ * - SetQueueAvail(uint32_t, uint64_t) -> void
+ * - SetQueueUsed(uint32_t, uint64_t) -> void
+ * - GetQueueReady(uint32_t) -> bool
+ * - SetQueueReady(uint32_t, bool) -> void
+ * - NotifyQueue(uint32_t) -> void
+ * - GetInterruptStatus() const -> uint32_t
+ * - AckInterrupt(uint32_t) -> void
+ * - ReadConfigU8(uint32_t) const -> uint8_t
+ * - ReadConfigU16(uint32_t) const -> uint16_t
+ * - ReadConfigU32(uint32_t) const -> uint32_t
+ * - ReadConfigU64(uint32_t) const -> uint64_t
+ * - GetConfigGeneration() const -> uint32_t
+ *
+ * @tparam Traits 平台环境特征类型
+ * @tparam Derived CRTP 派生类类型
  * @see virtio-v1.2#4 Virtio Transport Options
  */
-template <VirtioEnvironmentTraits Traits = NullTraits>
+template <VirtioEnvironmentTraits Traits, typename Derived>
 class Transport {
  public:
   /**
@@ -53,58 +74,6 @@ class Transport {
   };
 
   /**
-   * @brief 检查传输层是否成功初始化
-   *
-   * 在调用其他任何方法之前应先检查此状态。
-   * 如果初始化失败（如 MMIO 魔数错误、设备不存在等），返回 false。
-   *
-   * @return true 表示传输层初始化成功，可以使用；false 表示初始化失败
-   */
-  [[nodiscard]] virtual auto IsValid() const -> bool = 0;
-
-  /**
-   * @brief 获取 Virtio Subsystem Device ID
-   *
-   * Device ID 用于标识设备类型（例如：1 = 网络设备，2 = 块设备）。
-   *
-   * @pre IsValid() == true
-   * @return 设备类型 ID
-   * @see virtio-v1.2#5 Device Types
-   */
-  [[nodiscard]] virtual auto GetDeviceId() const -> uint32_t = 0;
-
-  /**
-   * @brief 获取 Virtio Subsystem Vendor ID
-   *
-   * Vendor ID 用于标识设备供应商（PCI Vendor ID）。
-   *
-   * @return 供应商 ID
-   * @see virtio-v1.2#4.1.2 PCI Device Discovery
-   */
-  [[nodiscard]] virtual auto GetVendorId() const -> uint32_t = 0;
-
-  /**
-   * @brief 读取设备状态寄存器
-   *
-   * 状态寄存器反映设备当前的初始化状态和运行状态。
-   *
-   * @return 当前设备状态（DeviceStatus 位的组合）
-   * @see virtio-v1.2#2.1 Device Status Field
-   */
-  [[nodiscard]] virtual auto GetStatus() const -> uint32_t = 0;
-
-  /**
-   * @brief 写入设备状态寄存器
-   *
-   * 驱动程序通过写入状态位来推进设备初始化流程。
-   * 状态位应该累加设置（例如：先写 ACKNOWLEDGE，再写 DRIVER）。
-   *
-   * @param status 要设置的状态位（DeviceStatus 位的组合）
-   * @see virtio-v1.2#2.1 Device Status Field
-   */
-  virtual auto SetStatus(uint32_t status) -> void = 0;
-
-  /**
    * @brief 重置设备
    *
    * 将状态寄存器写 0，使设备回到初始状态。
@@ -113,214 +82,7 @@ class Transport {
    * @see virtio-v1.2#2.1 Device Status Field
    * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
    */
-  auto Reset() -> void { SetStatus(kReset); }
-
-  /**
-   * @brief 读取设备支持的 64 位特性位
-   *
-   * 设备特性位表示设备支持的可选功能。
-   * 驱动程序应读取此值，与自己支持的特性取交集后写回。
-   *
-   * @note 部分传输层（如 MMIO）需要写入选择寄存器，因此不能声明为 const
-   *
-   * @return 设备支持的特性位（64 位掩码）
-   * @see virtio-v1.2#2.2 Feature Bits
-   * @see virtio-v1.2#6 Reserved Feature Bits
-   */
-  [[nodiscard]] virtual auto GetDeviceFeatures() -> uint64_t = 0;
-
-  /**
-   * @brief 写入驱动程序接受的 64 位特性位
-   *
-   * 驱动程序将协商后的特性位写入此寄存器，表示同意使用这些功能。
-   * 必须在设置 FEATURES_OK 状态位之前完成。
-   *
-   * @param features 驱动程序接受的特性位（应为设备特性的子集）
-   * @see virtio-v1.2#2.2 Feature Bits
-   * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
-   */
-  virtual auto SetDriverFeatures(uint64_t features) -> void = 0;
-
-  /**
-   * @brief 获取指定队列支持的最大队列大小
-   *
-   * 设备报告每个 virtqueue 支持的最大 queue_size（描述符数量）。
-   * 返回 0 表示该队列索引无效或不可用。
-   *
-   * @note 部分传输层（如 MMIO）需要写入选择寄存器，因此不能声明为 const
-   *
-   * @param queue_idx 队列索引（从 0 开始）
-   * @return 最大队列大小（queue_num_max），0 表示队列不可用
-   * @see virtio-v1.2#2.6 Split Virtqueues
-   */
-  [[nodiscard]] virtual auto GetQueueNumMax(uint32_t queue_idx) -> uint32_t = 0;
-
-  /**
-   * @brief 设置指定队列的队列大小
-   *
-   * 队列大小决定了描述符表、Available Ring 和 Used Ring 的条目数量。
-   * 必须在设置队列地址之前调用。
-   *
-   * @param queue_idx 队列索引（从 0 开始）
-   * @param num 队列大小（必须 <= get_queue_num_max()，通常为 2 的幂）
-   * @see virtio-v1.2#2.6 Split Virtqueues
-   * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
-   */
-  virtual auto SetQueueNum(uint32_t queue_idx, uint32_t num) -> void = 0;
-
-  /**
-   * @brief 设置描述符表的物理地址
-   *
-   * 配置 virtqueue 描述符表在客户机物理内存中的位置。
-   *
-   * @param queue_idx 队列索引（从 0 开始）
-   * @param addr 描述符表的 64 位客户机物理地址（必须 16 字节对齐）
-   * @see virtio-v1.2#2.6.2 The Virtqueue Descriptor Table
-   */
-  virtual auto SetQueueDesc(uint32_t queue_idx, uint64_t addr) -> void = 0;
-
-  /**
-   * @brief 设置 Available Ring 的物理地址
-   *
-   * 配置 Available Ring（Driver Area）在客户机物理内存中的位置。
-   * 驱动程序通过此区域向设备提供可用缓冲区。
-   *
-   * @param queue_idx 队列索引（从 0 开始）
-   * @param addr Available Ring 的 64 位客户机物理地址（必须 2 字节对齐）
-   * @see virtio-v1.2#2.6.3 The Virtqueue Available Ring
-   */
-  virtual auto SetQueueAvail(uint32_t queue_idx, uint64_t addr) -> void = 0;
-
-  /**
-   * @brief 设置 Used Ring 的物理地址
-   *
-   * 配置 Used Ring（Device Area）在客户机物理内存中的位置。
-   * 设备通过此区域向驱动程序返回已处理的缓冲区。
-   *
-   * @param queue_idx 队列索引（从 0 开始）
-   * @param addr Used Ring 的 64 位客户机物理地址（必须 4 字节对齐）
-   * @see virtio-v1.2#2.6.4 The Virtqueue Used Ring
-   */
-  virtual auto SetQueueUsed(uint32_t queue_idx, uint64_t addr) -> void = 0;
-
-  /**
-   * @brief 读取队列就绪状态
-   *
-   * 检查指定队列是否已配置完成并处于就绪状态。
-   *
-   * @note 部分传输层（如 MMIO）需要写入选择寄存器，因此不能声明为 const
-   *
-   * @param queue_idx 队列索引（从 0 开始）
-   * @return true 表示队列已就绪，false 表示未就绪
-   * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
-   */
-  [[nodiscard]] virtual auto GetQueueReady(uint32_t queue_idx) -> bool = 0;
-
-  /**
-   * @brief 设置队列就绪状态
-   *
-   * 在配置完队列大小和地址后，驱动程序必须将队列标记为就绪。
-   * 设备只能使用已就绪的队列。
-   *
-   * @param queue_idx 队列索引（从 0 开始）
-   * @param ready true 表示队列已配置完成，false 表示禁用队列
-   * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
-   */
-  virtual auto SetQueueReady(uint32_t queue_idx, bool ready) -> void = 0;
-
-  /**
-   * @brief 通知设备指定队列有新的可用缓冲区
-   *
-   * 驱动程序将缓冲区添加到 Available Ring 后，需要通过此方法通知设备。
-   * 如果启用了中断抑制特性，可能不需要每次都通知。
-   *
-   * @param queue_idx 队列索引（从 0 开始）
-   * @see virtio-v1.2#2.6.8 Supplying Buffers to The Device
-   * @see virtio-v1.2#2.7.21 Driver notifications
-   */
-  virtual auto NotifyQueue(uint32_t queue_idx) -> void = 0;
-
-  /**
-   * @brief 读取中断状态寄存器
-   *
-   * 获取设备当前的中断原因（Used Buffer 或 Configuration Change）。
-   * 读取后应使用 ack_interrupt() 清除相应的状态位。
-   *
-   * @return 中断状态位（位 0：Used Buffer，位 1：Configuration Change）
-   * @see virtio-v1.2#2.6.7 Used Buffer Notification
-   * @see virtio-v1.2#4.2.2 MMIO Device Register Layout (InterruptStatus)
-   */
-  [[nodiscard]] virtual auto GetInterruptStatus() const -> uint32_t = 0;
-
-  /**
-   * @brief 确认并清除中断状态位
-   *
-   * 驱动程序处理完中断后，应写入相应的位来清除中断状态。
-   *
-   * @param ack_bits 要确认的中断位（位 0：Used Buffer，位 1：Configuration
-   * Change）
-   * @see virtio-v1.2#4.2.2 MMIO Device Register Layout (InterruptACK)
-   */
-  virtual auto AckInterrupt(uint32_t ack_bits) -> void = 0;
-
-  // ========================================================================
-  // 配置空间访问
-  // @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
-  // @see virtio-v1.2#4.2.2 MMIO Device Register Layout (Config)
-  // ========================================================================
-
-  /**
-   * @brief 读取配置空间的 uint8_t 值
-   *
-   * 配置空间存储设备特定的配置信息，不同设备类型的配置空间布局不同。
-   *
-   * @param offset 相对于配置空间起始的偏移量（字节）
-   * @return 读取的 8 位值
-   * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
-   */
-  [[nodiscard]] virtual auto ReadConfigU8(uint32_t offset) const -> uint8_t = 0;
-
-  /**
-   * @brief 读取配置空间的 uint16_t 值
-   *
-   * @param offset 相对于配置空间起始的偏移量（字节，必须 2 字节对齐）
-   * @return 读取的 16 位值（little-endian）
-   * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
-   */
-  [[nodiscard]] virtual auto ReadConfigU16(uint32_t offset) const
-      -> uint16_t = 0;
-
-  /**
-   * @brief 读取配置空间的 uint32_t 值
-   *
-   * @param offset 相对于配置空间起始的偏移量（字节，必须 4 字节对齐）
-   * @return 读取的 32 位值（little-endian）
-   * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
-   */
-  [[nodiscard]] virtual auto ReadConfigU32(uint32_t offset) const
-      -> uint32_t = 0;
-
-  /**
-   * @brief 读取配置空间的 uint64_t 值
-   *
-   * @param offset 相对于配置空间起始的偏移量（字节，必须 8 字节对齐）
-   * @return 读取的 64 位值（little-endian）
-   * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
-   */
-  [[nodiscard]] virtual auto ReadConfigU64(uint32_t offset) const
-      -> uint64_t = 0;
-
-  /**
-   * @brief 获取配置空间的 generation 计数
-   *
-   * 读取配置空间前后需检查 generation 是否一致，以确保读取的数据有效。
-   * 如果前后 generation 不同，说明配置在读取过程中被修改，需要重新读取。
-   *
-   * @return 配置空间的 generation 计数（每次配置变更时递增）
-   * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
-   * @see virtio-v1.2#4.2.2 MMIO Device Register Layout (ConfigGeneration)
-   */
-  [[nodiscard]] virtual auto GetConfigGeneration() const -> uint32_t = 0;
+  auto Reset() -> void { derived().SetStatus(kReset); }
 
   /**
    * @brief 检查设备是否需要重置
@@ -332,7 +94,7 @@ class Transport {
    * @see virtio-v1.2#2.1 Device Status Field
    */
   [[nodiscard]] auto NeedsReset() const -> bool {
-    return (GetStatus() & kDeviceNeedsReset) != 0;
+    return (derived().GetStatus() & kDeviceNeedsReset) != 0;
   }
 
   /**
@@ -341,18 +103,44 @@ class Transport {
    * @return true 表示设备已激活，false 表示未激活
    */
   [[nodiscard]] auto IsActive() const -> bool {
-    return (GetStatus() & kDriverOk) != 0;
+    return (derived().GetStatus() & kDriverOk) != 0;
   }
 
-  /// @name 构造/析构函数
+  /**
+   * @brief 确认并清除设备中断
+   *
+   * 读取中断状态，如果有中断则确认清除。
+   * 通用逻辑通过 CRTP 分发到子类的 GetInterruptStatus() 和 AckInterrupt()。
+   *
+   * @see virtio-v1.2#2.3 Notifications
+   */
+  auto AcknowledgeInterrupt() -> void {
+    auto status = derived().GetInterruptStatus();
+    if (status != 0) {
+      derived().AckInterrupt(status);
+    }
+  }
+
+ protected:
+  /// @name 构造/析构函数（仅允许派生类使用）
   /// @{
   Transport() = default;
+  ~Transport() = default;
   Transport(Transport&&) noexcept = default;
   auto operator=(Transport&&) noexcept -> Transport& = default;
   Transport(const Transport&) = delete;
   auto operator=(const Transport&) -> Transport& = delete;
-  virtual ~Transport() = default;
   /// @}
+
+ private:
+  /// @brief CRTP 向下转型（非 const 版本）
+  [[nodiscard]] auto derived() -> Derived& {
+    return *static_cast<Derived*>(this);
+  }
+  /// @brief CRTP 向下转型（const 版本）
+  [[nodiscard]] auto derived() const -> const Derived& {
+    return *static_cast<const Derived*>(this);
+  }
 };
 
 }  // namespace virtio_driver
