@@ -115,12 +115,12 @@ class SplitVirtqueue {
      */
     [[nodiscard]] auto used_event(uint16_t queue_size) volatile
         -> volatile uint16_t* {
-      return &ring[queue_size];
+      return ring + queue_size;
     }
 
     [[nodiscard]] auto used_event(uint16_t queue_size) const volatile -> const
         volatile uint16_t* {
-      return &ring[queue_size];
+      return ring + queue_size;
     }
   } __attribute__((packed));
 
@@ -167,12 +167,17 @@ class SplitVirtqueue {
      */
     [[nodiscard]] auto avail_event(uint16_t queue_size) volatile
         -> volatile uint16_t* {
-      return reinterpret_cast<volatile uint16_t*>(&ring[queue_size]);
+      // avail_event 位于 ring[queue_size] 之后，需要先转换为字节指针计算偏移
+      auto* byte_ptr = reinterpret_cast<volatile uint8_t*>(ring);
+      return reinterpret_cast<volatile uint16_t*>(byte_ptr + sizeof(UsedElem) *
+                                                                 queue_size);
     }
 
     [[nodiscard]] auto avail_event(uint16_t queue_size) const volatile -> const
         volatile uint16_t* {
-      return reinterpret_cast<const volatile uint16_t*>(&ring[queue_size]);
+      const auto* byte_ptr = reinterpret_cast<const volatile uint8_t*>(ring);
+      return reinterpret_cast<const volatile uint16_t*>(
+          byte_ptr + sizeof(UsedElem) * queue_size);
     }
   } __attribute__((packed));
 

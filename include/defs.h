@@ -6,6 +6,7 @@
 #define VIRTIO_DEFS_H
 
 #include <cstdint>
+#include <type_traits>
 
 namespace virtio_driver {
 
@@ -99,7 +100,7 @@ class Logger {
    */
   template <typename... Args>
   void Log(const char* format, Args&&... args) const {
-    if constexpr (!std::is_same_v<LogFunc, std::nullptr_t>) {
+    if constexpr (!std::is_same<LogFunc, std::nullptr_t>::value) {
       LogFunc{}(format, args...);
     }
   }

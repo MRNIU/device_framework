@@ -166,4 +166,9 @@ void test_framework_print_summary();
  */
 void test_virtio_mmio_device_status();
 
+/**
+ * @brief 测试 VirtIO 块设备功能
+ */
+void test_virtio_blk();
+
 #endif /* VIRTIO_DRIVER_TESTS_TEST_FRAMEWORK_H_ */
