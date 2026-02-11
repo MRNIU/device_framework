@@ -9,6 +9,9 @@
 // 全局测试统计
 TestStats g_test_stats = {0, 0, 0};
 
+// VirtIO 设备中断回调表
+VirtioIrqHandler g_virtio_irq_handlers[8] = {};
+
 void test_framework_init() {
   g_test_stats.total = 0;
   g_test_stats.passed = 0;

@@ -63,6 +63,11 @@ alignas(16) static virtio_driver::blk::BlkReqHeader g_req_header;
 /// 数据缓冲区（一个扇区大小）
 alignas(16) static uint8_t g_data_buf[virtio_driver::blk::kSectorSize];
 
+/// 多扇区测试用的较大数据缓冲区
+constexpr size_t kMultiSectorCount = 4;
+alignas(16) static uint8_t
+    g_multi_data_buf[virtio_driver::blk::kSectorSize * kMultiSectorCount];
+
 /// 状态字节
 alignas(16) static uint8_t g_status;
 
@@ -296,6 +301,288 @@ void test_virtio_blk() {
   {
     uint32_t count = blk.ProcessUsed();
     EXPECT_EQ(0U, count, "ProcessUsed() returns 0 when no pending requests");
+  }
+
+  // === 测试 11: 注册 VirtIO 中断处理函数 ===
+  // 通过 MMIO 设备地址计算设备索引，注册中断回调
+  {
+    uint32_t dev_idx =
+        static_cast<uint32_t>((blk_base - kVirtioMmioBase) / kVirtioMmioSize);
+    // 使用 lambda 包装 blk.AckInterrupt()
+    // 由于 lambda 不捕获，可以转换为函数指针
+    // 但 AckInterrupt 需要 blk 引用，所以用静态指针中转
+    static decltype(&blk) s_blk_ptr = nullptr;
+    s_blk_ptr = &blk;
+    g_virtio_irq_handlers[dev_idx] = []() {
+      if (s_blk_ptr != nullptr) {
+        s_blk_ptr->AckInterrupt();
+      }
+    };
+    EXPECT_TRUE(g_virtio_irq_handlers[dev_idx] != nullptr,
+                "VirtIO IRQ handler registered");
+    LOG_HEX("Registered IRQ handler for device index", dev_idx);
+  }
+
+  // === 测试 12: 顺序写入多个扇区 (sectors 10-13) ===
+  {
+    LOG("Writing 4 sectors (10-13) with distinct patterns...");
+    bool all_writes_ok = true;
+
+    for (size_t s = 0; s < kMultiSectorCount; ++s) {
+      uint64_t sector = 10 + s;
+      // 每个扇区用不同的模式填充：sector 10 -> 0x10, sector 11 -> 0x11, ...
+      uint8_t pattern = static_cast<uint8_t>(0x10 + s);
+      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+        g_data_buf[i] = static_cast<uint8_t>(pattern + (i & 0x0F));
+      }
+      g_status = 0xFF;
+
+      auto write_result =
+          blk.Write(sector, g_data_buf, &g_status, &g_req_header);
+      if (!write_result.has_value()) {
+        all_writes_ok = false;
+        LOG_HEX("Write submit failed for sector", sector);
+        break;
+      }
+
+      // 忙等待完成
+      uint32_t timeout_count = 0;
+      constexpr uint32_t kMaxWait = 1000000;
+      while (!vq.HasUsed() && timeout_count < kMaxWait) {
+        busy_wait(100);
+        ++timeout_count;
+      }
+
+      if (!vq.HasUsed()) {
+        all_writes_ok = false;
+        LOG_HEX("Write timeout for sector", sector);
+        break;
+      }
+
+      uint32_t processed = blk.ProcessUsed();
+      if (processed != 1 ||
+          g_status !=
+              static_cast<uint8_t>(virtio_driver::blk::BlkStatus::kOk)) {
+        all_writes_ok = false;
+        LOG_HEX("Write failed for sector", sector);
+        LOG_HEX("  status", g_status);
+        break;
+      }
+    }
+    EXPECT_TRUE(all_writes_ok, "Write 4 sectors (10-13) sequentially");
+  }
+
+  // === 测试 13: 顺序读回多个扇区并验证数据一致性 ===
+  {
+    LOG("Reading back 4 sectors (10-13) and verifying...");
+    bool all_reads_ok = true;
+
+    for (size_t s = 0; s < kMultiSectorCount; ++s) {
+      uint64_t sector = 10 + s;
+      uint8_t pattern = static_cast<uint8_t>(0x10 + s);
+
+      memzero(g_data_buf, sizeof(g_data_buf));
+      g_status = 0xFF;
+
+      auto read_result = blk.Read(sector, g_data_buf, &g_status, &g_req_header);
+      if (!read_result.has_value()) {
+        all_reads_ok = false;
+        LOG_HEX("Read submit failed for sector", sector);
+        break;
+      }
+
+      uint32_t timeout_count = 0;
+      constexpr uint32_t kMaxWait = 1000000;
+      while (!vq.HasUsed() && timeout_count < kMaxWait) {
+        busy_wait(100);
+        ++timeout_count;
+      }
+
+      if (!vq.HasUsed()) {
+        all_reads_ok = false;
+        LOG_HEX("Read timeout for sector", sector);
+        break;
+      }
+
+      uint32_t processed = blk.ProcessUsed();
+      if (processed != 1 ||
+          g_status !=
+              static_cast<uint8_t>(virtio_driver::blk::BlkStatus::kOk)) {
+        all_reads_ok = false;
+        LOG_HEX("Read failed for sector", sector);
+        break;
+      }
+
+      // 验证数据
+      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+        uint8_t expected = static_cast<uint8_t>(pattern + (i & 0x0F));
+        if (g_data_buf[i] != expected) {
+          all_reads_ok = false;
+          LOG_HEX("Data mismatch at sector", sector);
+          LOG_HEX("  byte offset", i);
+          LOG_HEX("  expected", expected);
+          LOG_HEX("  got", g_data_buf[i]);
+          break;
+        }
+      }
+      if (!all_reads_ok) {
+        break;
+      }
+    }
+    EXPECT_TRUE(all_reads_ok, "Read-verify 4 sectors (10-13) sequentially");
+  }
+
+  // === 测试 14: 写入不连续扇区 (100, 200, 500, 1000) ===
+  {
+    LOG("Writing non-contiguous sectors (100, 200, 500, 1000)...");
+    constexpr uint64_t sectors[] = {100, 200, 500, 1000};
+    constexpr size_t num_sectors = sizeof(sectors) / sizeof(sectors[0]);
+    bool all_ok = true;
+
+    for (size_t s = 0; s < num_sectors; ++s) {
+      // 填充：以扇区号低字节为基础模式
+      uint8_t pattern = static_cast<uint8_t>(sectors[s] & 0xFF);
+      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+        g_data_buf[i] = static_cast<uint8_t>(pattern ^ (i & 0xFF));
+      }
+      g_status = 0xFF;
+
+      auto result = blk.Write(sectors[s], g_data_buf, &g_status, &g_req_header);
+      if (!result.has_value()) {
+        all_ok = false;
+        break;
+      }
+
+      uint32_t timeout_count = 0;
+      constexpr uint32_t kMaxWait = 1000000;
+      while (!vq.HasUsed() && timeout_count < kMaxWait) {
+        busy_wait(100);
+        ++timeout_count;
+      }
+
+      if (!vq.HasUsed()) {
+        all_ok = false;
+        break;
+      }
+
+      blk.ProcessUsed();
+      if (g_status !=
+          static_cast<uint8_t>(virtio_driver::blk::BlkStatus::kOk)) {
+        all_ok = false;
+        break;
+      }
+    }
+    EXPECT_TRUE(all_ok, "Write non-contiguous sectors");
+
+    // 读回验证
+    LOG("Verifying non-contiguous sectors...");
+    for (size_t s = 0; s < num_sectors && all_ok; ++s) {
+      uint8_t pattern = static_cast<uint8_t>(sectors[s] & 0xFF);
+      memzero(g_data_buf, sizeof(g_data_buf));
+      g_status = 0xFF;
+
+      auto result = blk.Read(sectors[s], g_data_buf, &g_status, &g_req_header);
+      if (!result.has_value()) {
+        all_ok = false;
+        break;
+      }
+
+      uint32_t timeout_count = 0;
+      constexpr uint32_t kMaxWait = 1000000;
+      while (!vq.HasUsed() && timeout_count < kMaxWait) {
+        busy_wait(100);
+        ++timeout_count;
+      }
+
+      if (!vq.HasUsed()) {
+        all_ok = false;
+        break;
+      }
+
+      blk.ProcessUsed();
+      if (g_status !=
+          static_cast<uint8_t>(virtio_driver::blk::BlkStatus::kOk)) {
+        all_ok = false;
+        break;
+      }
+
+      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+        uint8_t expected = static_cast<uint8_t>(pattern ^ (i & 0xFF));
+        if (g_data_buf[i] != expected) {
+          all_ok = false;
+          LOG_HEX("Non-contiguous verify failed at sector", sectors[s]);
+          break;
+        }
+      }
+    }
+    EXPECT_TRUE(all_ok, "Read-verify non-contiguous sectors");
+  }
+
+  // === 测试 15: 覆写已有数据并验证 ===
+  {
+    LOG("Overwrite sector 10 with new pattern and verify...");
+    // 先写入新模式
+    for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+      g_data_buf[i] = static_cast<uint8_t>(0xDD - (i & 0x0F));
+    }
+    g_status = 0xFF;
+
+    auto write_result = blk.Write(10, g_data_buf, &g_status, &g_req_header);
+    EXPECT_TRUE(write_result.has_value(), "Overwrite submit succeeds");
+
+    if (write_result.has_value()) {
+      uint32_t timeout_count = 0;
+      constexpr uint32_t kMaxWait = 1000000;
+      while (!vq.HasUsed() && timeout_count < kMaxWait) {
+        busy_wait(100);
+        ++timeout_count;
+      }
+      EXPECT_TRUE(vq.HasUsed(), "Overwrite completed");
+      if (vq.HasUsed()) {
+        blk.ProcessUsed();
+        EXPECT_EQ(static_cast<uint8_t>(virtio_driver::blk::BlkStatus::kOk),
+                  g_status, "Overwrite status OK");
+      }
+    }
+
+    // 读回验证新数据
+    memzero(g_data_buf, sizeof(g_data_buf));
+    g_status = 0xFF;
+
+    auto read_result = blk.Read(10, g_data_buf, &g_status, &g_req_header);
+    EXPECT_TRUE(read_result.has_value(), "Overwrite read-back submit succeeds");
+
+    if (read_result.has_value()) {
+      uint32_t timeout_count = 0;
+      constexpr uint32_t kMaxWait = 1000000;
+      while (!vq.HasUsed() && timeout_count < kMaxWait) {
+        busy_wait(100);
+        ++timeout_count;
+      }
+      EXPECT_TRUE(vq.HasUsed(), "Overwrite read-back completed");
+      if (vq.HasUsed()) {
+        blk.ProcessUsed();
+        EXPECT_EQ(static_cast<uint8_t>(virtio_driver::blk::BlkStatus::kOk),
+                  g_status, "Overwrite read-back status OK");
+
+        bool match = true;
+        for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+          if (g_data_buf[i] != static_cast<uint8_t>(0xDD - (i & 0x0F))) {
+            match = false;
+            LOG_HEX("Overwrite verify mismatch at byte", i);
+            break;
+          }
+        }
+        EXPECT_TRUE(match, "Overwrite data matches new pattern");
+      }
+    }
+  }
+
+  // 清理：注销中断处理函数
+  {
+    uint32_t dev_idx =
+        static_cast<uint32_t>((blk_base - kVirtioMmioBase) / kVirtioMmioSize);
+    g_virtio_irq_handlers[dev_idx] = nullptr;
   }
 
   // 打印测试摘要

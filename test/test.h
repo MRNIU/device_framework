@@ -140,6 +140,17 @@ extern TestStats g_test_stats;
     uart_puts("\n");                            \
   } while (0)
 
+/// @name VirtIO 中断回调机制
+/// @{
+
+/// VirtIO 设备中断回调函数类型
+using VirtioIrqHandler = void (*)();
+
+/// VirtIO 设备中断回调表（索引 0-7 对应 8 个 MMIO 设备）
+extern VirtioIrqHandler g_virtio_irq_handlers[8];
+
+/// @}
+
 /**
  * @brief 初始化测试框架
  */

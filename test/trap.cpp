@@ -5,6 +5,7 @@
 #include <cstdint>
 
 #include "plic.h"
+#include "test.h"
 #include "uart.h"
 
 /**
@@ -40,10 +41,14 @@ extern "C" void trap_handler(uint64_t cause, uint64_t epc, uint64_t tval) {
 
           // 根据 IRQ 处理不同的设备中断
           if (irq >= kVirtio0Irq && irq <= kVirtio7Irq) {
+            uint32_t dev_idx = irq - kVirtio0Irq;
             uart_puts("  Device: VirtIO");
-            uart_put_hex(irq - kVirtio0Irq);
+            uart_put_hex(dev_idx);
             uart_puts("\n");
-            // TODO: 调用具体 VirtIO 设备的中断处理函数
+            // 调用已注册的 VirtIO 设备中断处理函数
+            if (g_virtio_irq_handlers[dev_idx] != nullptr) {
+              g_virtio_irq_handlers[dev_idx]();
+            }
           } else if (irq == kUart0Irq) {
             uart_puts("  Device: UART\n");
             uart_handle_interrupt();
