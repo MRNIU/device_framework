@@ -17,21 +17,20 @@ namespace virtio_driver {
  * @todo 实现 PCI Modern (1.0+) 传输层
  * @see virtio-v1.2#4.1
  */
-template <class LogFunc = std::nullptr_t>
-class PciTransport final : public Transport<LogFunc> {
+template <VirtioEnvironmentTraits Traits = NullTraits>
+class PciTransport final : public Transport<Traits> {
  public:
+  [[nodiscard]] auto IsValid() const -> bool override { return false; }
   [[nodiscard]] auto GetDeviceId() const -> uint32_t override { return 0; }
   [[nodiscard]] auto GetVendorId() const -> uint32_t override { return 0; }
 
   [[nodiscard]] auto GetStatus() const -> uint32_t override { return 0; }
   auto SetStatus(uint32_t /*status*/) -> void override {}
 
-  [[nodiscard]] auto GetDeviceFeatures() const -> uint64_t override {
-    return 0;
-  }
+  [[nodiscard]] auto GetDeviceFeatures() -> uint64_t override { return 0; }
   auto SetDriverFeatures(uint64_t /*features*/) -> void override {}
 
-  [[nodiscard]] auto GetQueueNumMax(uint32_t /*queue_idx*/) const
+  [[nodiscard]] auto GetQueueNumMax(uint32_t /*queue_idx*/)
       -> uint32_t override {
     return 0;
   }
@@ -42,8 +41,7 @@ class PciTransport final : public Transport<LogFunc> {
       -> void override {}
   auto SetQueueUsed(uint32_t /*queue_idx*/, uint64_t /*addr*/)
       -> void override {}
-  [[nodiscard]] auto GetQueueReady(uint32_t /*queue_idx*/) const
-      -> bool override {
+  [[nodiscard]] auto GetQueueReady(uint32_t /*queue_idx*/) -> bool override {
     return false;
   }
   auto SetQueueReady(uint32_t /*queue_idx*/, bool /*ready*/) -> void override {}

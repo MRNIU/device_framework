@@ -6,6 +6,7 @@
 #define VIRTIO_DRIVER_DEVICE_DEVICE_INITIALIZER_HPP_
 
 #include "virtio_driver/expected.hpp"
+#include "virtio_driver/traits.hpp"
 #include "virtio_driver/transport/transport.hpp"
 
 namespace virtio_driver {
@@ -37,11 +38,11 @@ namespace virtio_driver {
  * initializer.Activate();
  * @endcode
  *
- * @tparam LogFunc 日志函数类型（可选）
+ * @tparam Traits 平台环境特征类型
  * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
  */
-template <class LogFunc = std::nullptr_t>
-class DeviceInitializer : public Logger<LogFunc> {
+template <VirtioEnvironmentTraits Traits = NullTraits>
+class DeviceInitializer {
  public:
   /**
    * @brief 构造函数
@@ -49,7 +50,7 @@ class DeviceInitializer : public Logger<LogFunc> {
    * @param transport 传输层引用（必须在 DeviceInitializer 生命周期内保持有效）
    * @pre transport.IsValid() == true
    */
-  explicit DeviceInitializer(Transport<LogFunc>& transport)
+  explicit DeviceInitializer(Transport<Traits>& transport)
       : transport_(transport) {}
 
   /**
@@ -72,28 +73,28 @@ class DeviceInitializer : public Logger<LogFunc> {
   [[nodiscard]] auto Init(uint64_t driver_features) -> Expected<uint64_t> {
     // 检查传输层是否有效
     if (!transport_.IsValid()) {
-      Logger<LogFunc>::Log("Transport layer not initialized");
+      Traits::Log("Transport layer not initialized");
       return std::unexpected(Error{ErrorCode::kTransportNotInitialized});
     }
 
-    Logger<LogFunc>::Log("Starting device initialization sequence");
+    Traits::Log("Starting device initialization sequence");
 
     // 步骤 1: 重置设备
     transport_.Reset();
 
     // 步骤 2: 设置 ACKNOWLEDGE 状态位
-    transport_.SetStatus(Transport<LogFunc>::kAcknowledge);
-    Logger<LogFunc>::Log("Set ACKNOWLEDGE status");
+    transport_.SetStatus(Transport<Traits>::kAcknowledge);
+    Traits::Log("Set ACKNOWLEDGE status");
 
     // 步骤 3: 设置 DRIVER 状态位
-    transport_.SetStatus(Transport<LogFunc>::kAcknowledge |
-                         Transport<LogFunc>::kDriver);
-    Logger<LogFunc>::Log("Set DRIVER status");
+    transport_.SetStatus(Transport<Traits>::kAcknowledge |
+                         Transport<Traits>::kDriver);
+    Traits::Log("Set DRIVER status");
 
     // 步骤 4: 特性协商
     uint64_t device_features = transport_.GetDeviceFeatures();
     uint64_t negotiated_features = device_features & driver_features;
-    Logger<LogFunc>::Log(
+    Traits::Log(
         "Feature negotiation: device=0x%016llx, driver=0x%016llx, "
         "negotiated=0x%016llx",
         static_cast<unsigned long long>(device_features),
@@ -103,21 +104,21 @@ class DeviceInitializer : public Logger<LogFunc> {
     transport_.SetDriverFeatures(negotiated_features);
 
     // 步骤 5: 设置 FEATURES_OK 状态位
-    transport_.SetStatus(Transport<LogFunc>::kAcknowledge |
-                         Transport<LogFunc>::kDriver |
-                         Transport<LogFunc>::kFeaturesOk);
-    Logger<LogFunc>::Log("Set FEATURES_OK status");
+    transport_.SetStatus(Transport<Traits>::kAcknowledge |
+                         Transport<Traits>::kDriver |
+                         Transport<Traits>::kFeaturesOk);
+    Traits::Log("Set FEATURES_OK status");
 
     // 步骤 6: 验证 FEATURES_OK
     uint32_t status = transport_.GetStatus();
-    if ((status & Transport<LogFunc>::kFeaturesOk) == 0) {
+    if ((status & Transport<Traits>::kFeaturesOk) == 0) {
       // 设备拒绝了特性组合
-      Logger<LogFunc>::Log("Device rejected feature negotiation");
-      transport_.SetStatus(status | Transport<LogFunc>::kFailed);
+      Traits::Log("Device rejected feature negotiation");
+      transport_.SetStatus(status | Transport<Traits>::kFailed);
       return std::unexpected(Error{ErrorCode::kFeatureNegotiationFailed});
     }
 
-    Logger<LogFunc>::Log("Device initialization sequence completed");
+    Traits::Log("Device initialization sequence completed");
     return negotiated_features;
   }
 
@@ -142,22 +143,21 @@ class DeviceInitializer : public Logger<LogFunc> {
                                 uint32_t queue_size) -> Expected<void> {
     // 检查传输层是否有效
     if (!transport_.IsValid()) {
-      Logger<LogFunc>::Log("Transport layer not initialized");
+      Traits::Log("Transport layer not initialized");
       return std::unexpected(Error{ErrorCode::kTransportNotInitialized});
     }
 
-    Logger<LogFunc>::Log("Setting up queue %u (size=%u)", queue_idx,
-                         queue_size);
+    Traits::Log("Setting up queue %u (size=%u)", queue_idx, queue_size);
 
     // 检查队列大小是否有效
     uint32_t max_size = transport_.GetQueueNumMax(queue_idx);
     if (max_size == 0) {
-      Logger<LogFunc>::Log("Queue %u not available", queue_idx);
+      Traits::Log("Queue %u not available", queue_idx);
       return std::unexpected(Error{ErrorCode::kQueueNotAvailable});
     }
     if (queue_size > max_size) {
-      Logger<LogFunc>::Log("Queue %u size %u exceeds max %u", queue_idx,
-                           queue_size, max_size);
+      Traits::Log("Queue %u size %u exceeds max %u", queue_idx, queue_size,
+                  max_size);
       return std::unexpected(Error{ErrorCode::kQueueTooLarge});
     }
 
@@ -170,7 +170,7 @@ class DeviceInitializer : public Logger<LogFunc> {
     // 标记队列就绪
     transport_.SetQueueReady(queue_idx, true);
 
-    Logger<LogFunc>::Log(
+    Traits::Log(
         "Queue %u configured: desc=0x%016llx, avail=0x%016llx, used=0x%016llx",
         queue_idx, static_cast<unsigned long long>(desc_phys),
         static_cast<unsigned long long>(avail_phys),
@@ -195,23 +195,23 @@ class DeviceInitializer : public Logger<LogFunc> {
   [[nodiscard]] auto Activate() -> Expected<void> {
     // 检查传输层是否有效
     if (!transport_.IsValid()) {
-      Logger<LogFunc>::Log("Transport layer not initialized");
+      Traits::Log("Transport layer not initialized");
       return std::unexpected(Error{ErrorCode::kTransportNotInitialized});
     }
 
-    Logger<LogFunc>::Log("Activating device");
+    Traits::Log("Activating device");
 
     uint32_t current_status = transport_.GetStatus();
-    transport_.SetStatus(current_status | Transport<LogFunc>::kDriverOk);
+    transport_.SetStatus(current_status | Transport<Traits>::kDriverOk);
 
     // 验证设备是否正常激活
     uint32_t new_status = transport_.GetStatus();
-    if ((new_status & Transport<LogFunc>::kDeviceNeedsReset) != 0) {
-      Logger<LogFunc>::Log("Device activation failed: device needs reset");
+    if ((new_status & Transport<Traits>::kDeviceNeedsReset) != 0) {
+      Traits::Log("Device activation failed: device needs reset");
       return std::unexpected(Error{ErrorCode::kDeviceError});
     }
 
-    Logger<LogFunc>::Log("Device activated successfully");
+    Traits::Log("Device activated successfully");
     return {};
   }
 
@@ -222,15 +222,15 @@ class DeviceInitializer : public Logger<LogFunc> {
    *
    * @return 传输层的引用
    */
-  [[nodiscard]] auto transport() -> Transport<LogFunc>& { return transport_; }
+  [[nodiscard]] auto transport() -> Transport<Traits>& { return transport_; }
 
-  [[nodiscard]] auto transport() const -> const Transport<LogFunc>& {
+  [[nodiscard]] auto transport() const -> const Transport<Traits>& {
     return transport_;
   }
 
  private:
   /// 底层传输层引用
-  Transport<LogFunc>& transport_;
+  Transport<Traits>& transport_;
 };
 
 }  // namespace virtio_driver

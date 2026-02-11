@@ -17,19 +17,29 @@
 
 #include "test.h"
 #include "uart.h"
+#include "virtio_driver/traits.hpp"
 
 namespace {
 
-/// 日志函数
-struct BlkTestLogger {
-  auto operator()(const char* format, ...) const -> int {
+/// @brief RISC-V 平台环境 Traits 实现
+struct RiscvTraits {
+  static auto Log(const char* fmt, ...) -> int {
     uart_puts("[BLK] ");
     va_list ap;
-    va_start(ap, format);
-    int ret = uart_vprintf(format, ap);
+    va_start(ap, fmt);
+    int ret = uart_vprintf(fmt, ap);
     va_end(ap);
     uart_puts("\n");
     return ret;
+  }
+  static auto Mb() -> void { asm volatile("fence iorw, iorw" ::: "memory"); }
+  static auto Rmb() -> void { asm volatile("fence ir, ir" ::: "memory"); }
+  static auto Wmb() -> void { asm volatile("fence ow, ow" ::: "memory"); }
+  static auto VirtToPhys(void* p) -> uintptr_t {
+    return reinterpret_cast<uintptr_t>(p);
+  }
+  static auto PhysToVirt(uintptr_t a) -> void* {
+    return reinterpret_cast<void*>(a);
   }
 };
 
@@ -48,16 +58,10 @@ constexpr uint32_t kBlockDeviceId = 2;
  * 在裸机环境中无法使用 malloc，使用静态缓冲区模拟 DMA 内存。
  * 需要页对齐以满足 DMA 要求。
  */
-alignas(4096) static uint8_t g_vq_dma_buf[32768];
+alignas(4096) uint8_t g_vq_dma_buf[32768];
 
 /// 数据缓冲区（一个扇区大小）
-alignas(16) static uint8_t g_data_buf[virtio_driver::blk::kSectorSize];
-
-/// 平台操作接口（裸机实现：恒等映射）
-virtio_driver::PlatformOps g_platform_ops = {
-    .virt_to_phys = [](void* vaddr) -> uint64_t {
-      return reinterpret_cast<uint64_t>(vaddr);
-    }};
+alignas(16) uint8_t g_data_buf[virtio_driver::blk::kSectorSize];
 
 /**
  * @brief 扫描 MMIO 设备，找到块设备的基地址
@@ -112,15 +116,15 @@ void test_virtio_blk() {
   // === 测试 2: VirtioBlk::Create() 一步初始化 ===
   memzero(g_vq_dma_buf, sizeof(g_vq_dma_buf));
 
-  using VirtioBlkType = virtio_driver::blk::VirtioBlk<BlkTestLogger>;
+  using VirtioBlkType = virtio_driver::blk::VirtioBlk<RiscvTraits>;
   uint64_t extra_features =
       static_cast<uint64_t>(virtio_driver::blk::BlkFeatureBit::kSegMax) |
       static_cast<uint64_t>(virtio_driver::blk::BlkFeatureBit::kSizeMax) |
       static_cast<uint64_t>(virtio_driver::blk::BlkFeatureBit::kBlkSize) |
       static_cast<uint64_t>(virtio_driver::blk::BlkFeatureBit::kFlush) |
       static_cast<uint64_t>(virtio_driver::blk::BlkFeatureBit::kGeometry);
-  auto blk_result = VirtioBlkType::Create(blk_base, g_vq_dma_buf,
-                                          g_platform_ops, 128, extra_features);
+  auto blk_result =
+      VirtioBlkType::Create(blk_base, g_vq_dma_buf, 128, extra_features);
   EXPECT_TRUE(blk_result.has_value(), "VirtioBlk::Create() succeeds");
   if (!blk_result.has_value()) {
     LOG("VirtioBlk::Create() failed, skipping remaining tests");
@@ -188,7 +192,7 @@ void test_virtio_blk() {
 
   // === 测试 8: 注册 VirtIO 中断处理函数 ===
   {
-    uint32_t dev_idx =
+    auto dev_idx =
         static_cast<uint32_t>((blk_base - kVirtioMmioBase) / kVirtioMmioSize);
     static decltype(&blk) s_blk_ptr = nullptr;
     s_blk_ptr = &blk;
@@ -334,7 +338,7 @@ void test_virtio_blk() {
 
   // 清理：注销中断处理函数
   {
-    uint32_t dev_idx =
+    auto dev_idx =
         static_cast<uint32_t>((blk_base - kVirtioMmioBase) / kVirtioMmioSize);
     g_virtio_irq_handlers[dev_idx] = nullptr;
   }

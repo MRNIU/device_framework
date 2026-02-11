@@ -55,8 +55,8 @@ static constexpr uint32_t kMmioVersionModern = 0x02;
  *
  * @see virtio-v1.2#4.2 Virtio Over MMIO
  */
-template <class LogFunc = std::nullptr_t>
-class MmioTransport final : public Transport<LogFunc> {
+template <VirtioEnvironmentTraits Traits = NullTraits>
+class MmioTransport final : public Transport<Traits> {
  public:
   /**
    * @brief MMIO 寄存器偏移量
@@ -125,31 +125,30 @@ class MmioTransport final : public Transport<LogFunc> {
       : base_(base), is_valid_(false), device_id_(0), vendor_id_(0) {
     // 验证基地址有效性
     if (base == 0) {
-      Transport<LogFunc>::Log("MMIO base address is null");
+      Traits::Log("MMIO base address is null");
       return;
     }
 
     // 验证魔数
     auto magic = Read<uint32_t>(MmioReg::kMagicValue);
     if (magic != kMmioMagicValue) {
-      Transport<LogFunc>::Log(
-          "MMIO magic value mismatch: expected 0x%08x, got 0x%08x",
-          kMmioMagicValue, magic);
+      Traits::Log("MMIO magic value mismatch: expected 0x%08x, got 0x%08x",
+                  kMmioMagicValue, magic);
       return;
     }
 
     // 验证版本号（仅支持 modern v2）
     auto version = Read<uint32_t>(MmioReg::kVersion);
     if (version != kMmioVersionModern) {
-      Transport<LogFunc>::Log("MMIO version not supported: expected %u, got %u",
-                              kMmioVersionModern, version);
+      Traits::Log("MMIO version not supported: expected %u, got %u",
+                  kMmioVersionModern, version);
       return;
     }
 
     // 设备 ID 为 0 表示不存在设备
     device_id_ = Read<uint32_t>(MmioReg::kDeviceId);
     if (device_id_ == 0) {
-      Transport<LogFunc>::Log("MMIO device ID is 0, no device found");
+      Traits::Log("MMIO device ID is 0, no device found");
       return;
     }
 
@@ -157,14 +156,13 @@ class MmioTransport final : public Transport<LogFunc> {
     vendor_id_ = Read<uint32_t>(MmioReg::kVendorId);
 
     // 执行设备重置
-    Transport<LogFunc>::Reset();
+    Transport<Traits>::Reset();
 
     // 标记初始化成功
     is_valid_ = true;
 
-    Transport<LogFunc>::Log(
-        "MMIO device initialized: DeviceID=0x%08x, VendorID=0x%08x", device_id_,
-        vendor_id_);
+    Traits::Log("MMIO device initialized: DeviceID=0x%08x, VendorID=0x%08x",
+                device_id_, vendor_id_);
   }
 
   /**
@@ -179,7 +177,7 @@ class MmioTransport final : public Transport<LogFunc> {
   /// @name 构造/析构函数
   /// @{
   MmioTransport(MmioTransport&& other) noexcept
-      : Transport<LogFunc>(std::move(other)),
+      : Transport<Traits>(std::move(other)),
         base_(other.base_),
         is_valid_(other.is_valid_),
         device_id_(other.device_id_),

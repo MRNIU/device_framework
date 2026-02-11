@@ -7,6 +7,7 @@
 
 #include "virtio_driver/defs.h"
 #include "virtio_driver/expected.hpp"
+#include "virtio_driver/traits.hpp"
 
 namespace virtio_driver {
 
@@ -27,8 +28,8 @@ namespace virtio_driver {
  * @note 所有子类必须实现所有纯虚函数
  * @see virtio-v1.2#4 Virtio Transport Options
  */
-template <class LogFunc = std::nullptr_t>
-class Transport : public Logger<LogFunc> {
+template <VirtioEnvironmentTraits Traits = NullTraits>
+class Transport {
  public:
   /**
    * @brief 设备状态位定义
@@ -51,18 +52,6 @@ class Transport : public Logger<LogFunc> {
     kFailed = 128,
   };
 
-  /// @name 构造/析构函数
-  /// @{
- protected:
-  Transport() = default;
-  Transport(Transport&&) noexcept = default;
-  auto operator=(Transport&&) noexcept -> Transport& = default;
-  Transport(const Transport&) = delete;
-  auto operator=(const Transport&) -> Transport& = delete;
-  virtual ~Transport() = default;
-  /// @}
-
- public:
   /**
    * @brief 检查传输层是否成功初始化
    *
@@ -354,6 +343,16 @@ class Transport : public Logger<LogFunc> {
   [[nodiscard]] auto IsActive() const -> bool {
     return (GetStatus() & kDriverOk) != 0;
   }
+
+  /// @name 构造/析构函数
+  /// @{
+  Transport() = default;
+  Transport(Transport&&) noexcept = default;
+  auto operator=(Transport&&) noexcept -> Transport& = default;
+  Transport(const Transport&) = delete;
+  auto operator=(const Transport&) -> Transport& = delete;
+  virtual ~Transport() = default;
+  /// @}
 };
 
 }  // namespace virtio_driver

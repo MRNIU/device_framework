@@ -7,24 +7,34 @@
 #include <cstdarg>
 #include <cstdint>
 
-#include "virtio_driver/device/device_initializer.hpp"
 #include "test.h"
 #include "uart.h"
+#include "virtio_driver/device/device_initializer.hpp"
+#include "virtio_driver/traits.hpp"
 
 void operator delete(void*, size_t) noexcept {}
 
 namespace {
 
-// 日志函数类型
-struct TestLogger {
-  auto operator()(const char* format, ...) const -> int {
+/// @brief RISC-V 平台环境 Traits 实现
+struct RiscvTraits {
+  static auto Log(const char* fmt, ...) -> int {
     uart_puts("[MMIO] ");
     va_list ap;
-    va_start(ap, format);
-    int ret = uart_vprintf(format, ap);
+    va_start(ap, fmt);
+    int ret = uart_vprintf(fmt, ap);
     va_end(ap);
     uart_puts("\n");
     return ret;
+  }
+  static auto Mb() -> void { asm volatile("fence iorw, iorw" ::: "memory"); }
+  static auto Rmb() -> void { asm volatile("fence ir, ir" ::: "memory"); }
+  static auto Wmb() -> void { asm volatile("fence ow, ow" ::: "memory"); }
+  static auto VirtToPhys(void* p) -> uintptr_t {
+    return reinterpret_cast<uintptr_t>(p);
+  }
+  static auto PhysToVirt(uintptr_t a) -> void* {
+    return reinterpret_cast<void*>(a);
   }
 };
 
@@ -83,7 +93,7 @@ void test_virtio_mmio_device_status() {
     devices_found++;
 
     // 创建 MmioTransport 对象
-    virtio_driver::MmioTransport<TestLogger> transport(base);
+    virtio_driver::MmioTransport<RiscvTraits> transport(base);
 
     // 测试 0: 验证传输层初始化成功
     {

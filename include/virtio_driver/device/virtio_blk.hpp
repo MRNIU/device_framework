@@ -8,13 +8,12 @@
 #ifndef VIRTIO_DRIVER_DEVICE_VIRTIO_BLK_HPP_
 #define VIRTIO_DRIVER_DEVICE_VIRTIO_BLK_HPP_
 
-#include <atomic>
 #include <utility>
 
 #include "virtio_driver/defs.h"
 #include "virtio_driver/device/device_initializer.hpp"
 #include "virtio_driver/expected.hpp"
-#include "virtio_driver/platform.h"
+#include "virtio_driver/traits.hpp"
 #include "virtio_driver/transport/mmio.hpp"
 #include "virtio_driver/virt_queue/split.hpp"
 
@@ -303,11 +302,11 @@ static constexpr size_t kDeviceIdMaxLen = 20;
  * 用户只需提供 MMIO 基地址、DMA 缓冲区和平台操作接口，
  * 即可通过 Read() / Write() 进行块设备操作。
  *
- * @tparam LogFunc 日志函数类型（可选）
+ * @tparam Traits 平台环境特征类型
  * @see virtio-v1.2#5.2 Block Device
  */
-template <class LogFunc = std::nullptr_t>
-class VirtioBlk : public Logger<LogFunc> {
+template <VirtioEnvironmentTraits Traits = NullTraits>
+class VirtioBlk {
  public:
   /**
    * @brief 计算 Virtqueue DMA 缓冲区所需的字节数
@@ -340,25 +339,24 @@ class VirtioBlk : public Logger<LogFunc> {
    * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
    */
   [[nodiscard]] static auto Create(uint64_t mmio_base, void* vq_dma_buf,
-                                   const PlatformOps& platform,
                                    uint16_t queue_size = 128,
                                    uint64_t driver_features = 0)
       -> Expected<VirtioBlk> {
     // 1. 创建传输层
-    MmioTransport<LogFunc> transport(mmio_base);
+    MmioTransport<Traits> transport(mmio_base);
     if (!transport.IsValid()) {
       return std::unexpected(Error{ErrorCode::kTransportNotInitialized});
     }
 
     // 2. 创建 Virtqueue
-    uint64_t dma_phys = platform.virt_to_phys(vq_dma_buf);
+    uint64_t dma_phys = Traits::VirtToPhys(vq_dma_buf);
     SplitVirtqueue vq(vq_dma_buf, dma_phys, queue_size, false);
     if (!vq.IsValid()) {
       return std::unexpected(Error{ErrorCode::kInvalidArgument});
     }
 
     // 3. 设备初始化序列
-    DeviceInitializer<LogFunc> initializer(transport);
+    DeviceInitializer<Traits> initializer(transport);
 
     uint64_t wanted_features =
         static_cast<uint64_t>(ReservedFeature::kVersion1) | driver_features;
@@ -370,7 +368,7 @@ class VirtioBlk : public Logger<LogFunc> {
 
     // 验证 VERSION_1 已协商成功
     if ((negotiated & static_cast<uint64_t>(ReservedFeature::kVersion1)) == 0) {
-      initializer.Log("Device does not support VERSION_1 (modern mode)");
+      Traits::Log("Device does not support VERSION_1 (modern mode)");
       return std::unexpected(Error{ErrorCode::kFeatureNegotiationFailed});
     }
 
@@ -388,7 +386,7 @@ class VirtioBlk : public Logger<LogFunc> {
       return std::unexpected(activate_result.error());
     }
 
-    return VirtioBlk(std::move(transport), std::move(vq), platform, negotiated);
+    return VirtioBlk(std::move(transport), std::move(vq), negotiated);
   }
 
   /**
@@ -548,7 +546,8 @@ class VirtioBlk : public Logger<LogFunc> {
   auto HandleInterrupt() -> void {
     uint32_t status = transport_.GetInterruptStatus();
     transport_.AckInterrupt(status);
-    request_completed_.store(true, std::memory_order_release);
+    request_completed_ = true;
+    Traits::Wmb();
   }
 
   /// @name 移动/拷贝控制
@@ -556,23 +555,18 @@ class VirtioBlk : public Logger<LogFunc> {
   VirtioBlk(VirtioBlk&& other) noexcept
       : transport_(std::move(other.transport_)),
         vq_(std::move(other.vq_)),
-        platform_(other.platform_),
         negotiated_features_(other.negotiated_features_),
         req_header_(other.req_header_),
-        status_(other.status_),
-        request_completed_(
-            other.request_completed_.load(std::memory_order_relaxed)) {}
+        status_byte_(other.status_byte_),
+        request_completed_(other.request_completed_) {}
   auto operator=(VirtioBlk&& other) noexcept -> VirtioBlk& {
     if (this != &other) {
       transport_ = std::move(other.transport_);
       vq_ = std::move(other.vq_);
-      platform_ = other.platform_;
       negotiated_features_ = other.negotiated_features_;
       req_header_ = other.req_header_;
-      status_ = other.status_;
-      request_completed_.store(
-          other.request_completed_.load(std::memory_order_relaxed),
-          std::memory_order_relaxed);
+      status_byte_ = other.status_byte_;
+      request_completed_ = other.request_completed_;
     }
     return *this;
   }
@@ -587,14 +581,13 @@ class VirtioBlk : public Logger<LogFunc> {
    *
    * 只能通过 Create() 静态工厂方法创建实例。
    */
-  VirtioBlk(MmioTransport<LogFunc> transport, SplitVirtqueue vq,
-            PlatformOps platform, uint64_t features)
+  VirtioBlk(MmioTransport<Traits> transport, SplitVirtqueue vq,
+            uint64_t features)
       : transport_(std::move(transport)),
         vq_(std::move(vq)),
-        platform_(platform),
         negotiated_features_(features),
         req_header_{},
-        status_(0),
+        status_byte_(0),
         request_completed_(false) {}
 
   /**
@@ -623,7 +616,7 @@ class VirtioBlk : public Logger<LogFunc> {
     req_header_.type = static_cast<uint32_t>(type);
     req_header_.reserved = 0;
     req_header_.sector = sector;
-    status_ = 0xFF;
+    status_byte_ = 0xFF;
 
     // 分配 3 个描述符：header -> data -> status
     auto desc0_result = vq_.AllocDesc();
@@ -649,14 +642,14 @@ class VirtioBlk : public Logger<LogFunc> {
 
     // 描述符 0：请求头（设备只读）
     auto* d0 = *vq_.GetDesc(desc0);
-    d0->addr = platform_.virt_to_phys(&req_header_);
+    d0->addr = Traits::VirtToPhys(&req_header_);
     d0->len = sizeof(BlkReqHeader);
     d0->flags = SplitVirtqueue::kDescFNext;
     d0->next = desc1;
 
     // 描述符 1：数据缓冲区
     auto* d1 = *vq_.GetDesc(desc1);
-    d1->addr = platform_.virt_to_phys(data);
+    d1->addr = Traits::VirtToPhys(data);
     d1->len = kSectorSize;
     if (type == ReqType::kIn) {
       d1->flags = SplitVirtqueue::kDescFNext | SplitVirtqueue::kDescFWrite;
@@ -667,22 +660,22 @@ class VirtioBlk : public Logger<LogFunc> {
 
     // 描述符 2：状态字节（设备只写）
     auto* d2 = *vq_.GetDesc(desc2);
-    d2->addr = platform_.virt_to_phys(&status_);
+    d2->addr = Traits::VirtToPhys(const_cast<uint8_t*>(&status_byte_));
     d2->len = sizeof(uint8_t);
     d2->flags = SplitVirtqueue::kDescFWrite;
     d2->next = 0;
 
     // 重置完成标志（在提交请求之前）
-    request_completed_.store(false, std::memory_order_relaxed);
+    request_completed_ = false;
 
     // 内存屏障：确保完成标志重置 + 描述符写入对所有核心/设备可见
-    std::atomic_thread_fence(std::memory_order_seq_cst);
+    Traits::Mb();
 
     // 提交到 Available Ring
     vq_.Submit(desc0);
 
     // 内存屏障：确保 Available Ring 更新对设备可见
-    std::atomic_thread_fence(std::memory_order_seq_cst);
+    Traits::Mb();
 
     // 通知设备
     transport_.NotifyQueue(0);
@@ -691,8 +684,11 @@ class VirtioBlk : public Logger<LogFunc> {
     // HandleInterrupt() 在硬件中断处理程序中被调用后设置 request_completed_
     static constexpr uint32_t kMaxSpinIterations = 100000000;
     uint32_t spin_count = 0;
-    while (!request_completed_.load(std::memory_order_acquire) &&
-           spin_count < kMaxSpinIterations) {
+    while (spin_count < kMaxSpinIterations) {
+      Traits::Rmb();
+      if (request_completed_) {
+        break;
+      }
       ++spin_count;
     }
 
@@ -707,11 +703,11 @@ class VirtioBlk : public Logger<LogFunc> {
     ProcessUsed();
 
     // 检查设备状态
-    if (status_ != static_cast<uint8_t>(BlkStatus::kOk)) {
-      if (status_ == static_cast<uint8_t>(BlkStatus::kIoErr)) {
+    if (status_byte_ != static_cast<uint8_t>(BlkStatus::kOk)) {
+      if (status_byte_ == static_cast<uint8_t>(BlkStatus::kIoErr)) {
         return std::unexpected(Error{ErrorCode::kIoError});
       }
-      if (status_ == static_cast<uint8_t>(BlkStatus::kUnsupp)) {
+      if (status_byte_ == static_cast<uint8_t>(BlkStatus::kUnsupp)) {
         return std::unexpected(Error{ErrorCode::kNotSupported});
       }
       return std::unexpected(Error{ErrorCode::kDeviceError});
@@ -752,23 +748,18 @@ class VirtioBlk : public Logger<LogFunc> {
   }
 
   /// 传输层（MMIO）
-  MmioTransport<LogFunc> transport_;
+  MmioTransport<Traits> transport_;
   /// Virtqueue（Split）
   SplitVirtqueue vq_;
-  /// 平台操作接口
-  PlatformOps platform_;
   /// 协商后的特性位掩码
   uint64_t negotiated_features_;
   /// 内部请求头（DMA 可访问）
   alignas(16) BlkReqHeader req_header_;
   /// 内部状态字节（DMA 可访问）
-  alignas(16) uint8_t status_;
-  /// 请求完成标志（由 HandleInterrupt 在中断上下文中设置，多核安全）
-  std::atomic<bool> request_completed_;
+  alignas(16) volatile uint8_t status_byte_;
+  /// 请求完成标志（由 HandleInterrupt 在中断上下文中设置）
+  volatile bool request_completed_;
 };
-
-static_assert(std::atomic<bool>::is_always_lock_free,
-              "atomic<bool> must be lock-free for ISR safety");
 
 }  // namespace virtio_driver::blk
 

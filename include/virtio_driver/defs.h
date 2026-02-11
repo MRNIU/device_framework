@@ -6,8 +6,6 @@
 #define VIRTIO_DRIVER_DEFS_H_
 
 #include <cstdint>
-#include <type_traits>
-#include <utility>
 
 namespace virtio_driver {
 
@@ -86,25 +84,6 @@ enum class ReservedFeature : uint64_t {
   kNotifConfigData = 0x8000000000,
   /// 驱动可以单独重置队列 (VIRTIO_F_RING_RESET) [1 << 40]
   kRingReset = 0x10000000000,
-};
-
-/**
- * @brief 日志功能基类
- */
-template <class LogFunc = std::nullptr_t>
-class Logger {
- public:
-  /**
-   * @brief 记录日志信息
-   * @param  format          格式化字符串
-   * @param  args            可变参数
-   */
-  template <typename... Args>
-  void Log(const char* format, Args&&... args) const {
-    if constexpr (!std::is_same<LogFunc, std::nullptr_t>::value) {
-      LogFunc{}(format, std::forward<Args>(args)...);
-    }
-  }
 };
 
 }  // namespace virtio_driver

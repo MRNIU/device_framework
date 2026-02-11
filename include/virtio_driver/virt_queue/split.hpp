@@ -389,7 +389,7 @@ class SplitVirtqueue {
    *
    * @note 调用者必须在调用此方法前使用写屏障 (wmb) 确保描述符写入完成
    * @note 调用者必须在调用此方法后使用内存屏障 (mb) 确保 idx 更新对设备可见
-   * @note 这样设计是因为 SplitVirtqueue 不保存 PlatformOps 引用，
+   * @note 这样设计是因为 SplitVirtqueue 不保存 Traits 引用，
    *       由上层管理内存屏障
    *
    * @warning 非线程安全：多个线程同时调用可能导致竞态条件
@@ -400,7 +400,7 @@ class SplitVirtqueue {
     avail_->ring[idx % queue_size_] = head;
 
     // 编译器屏障：防止编译器重排序
-    // 真正的内存屏障由调用者负责（通过 PlatformOps）
+    // 真正的内存屏障由调用者负责（通过 Traits）
     asm volatile("" ::: "memory");
 
     avail_->idx = idx + 1;
