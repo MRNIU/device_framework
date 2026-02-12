@@ -1,9 +1,10 @@
 /**
  * @file virtqueue_base.hpp
- * @brief Virtqueue CRTP 基类（编译期多态，零虚表开销）
+ * @brief Virtqueue 基类（C++23 Deducing this 编译期多态，零虚表开销）
  *
  * 为 SplitVirtqueue 和未来的 PackedVirtqueue 提供统一的编译期多态基类。
- * 通过 CRTP 模式实现通用逻辑的静态分发，与 Transport 层的设计保持一致。
+ * 利用 C++23 Deducing this（显式对象参数，P0847）实现通用逻辑的
+ * 编译期静态分发，与 Transport 层的设计保持一致。
  *
  * @copyright Copyright The virtio_driver Contributors
  * @see virtio-v1.2#2.6 Split Virtqueues
@@ -23,10 +24,11 @@
 namespace virtio_driver {
 
 /**
- * @brief Virtqueue CRTP 基类
+ * @brief Virtqueue 基类（C++23 Deducing this 编译期多态）
  *
  * 提供 Split/Packed Virtqueue 共享的通用逻辑接口。
- * 通过 CRTP 静态分发到派生类的具体实现，零虚表开销。
+ * 利用 C++23 Deducing this（显式对象参数）在编译期静态分发到
+ * 派生类的具体实现，零虚表开销，无需传统 CRTP 的 static_cast。
  *
  * 派生类应提供以下方法（隐式接口）：
  * - IsValid() const -> bool
@@ -45,17 +47,16 @@ namespace virtio_driver {
  * - UsedPhys() const -> uint64_t
  *
  * @tparam Traits 平台环境特征类型
- * @tparam Derived CRTP 派生类类型
  * @see virtio-v1.2#2.7 / #2.8
  */
-template <VirtioEnvironmentTraits Traits, typename Derived>
+template <VirtioEnvironmentTraits Traits = NullTraits>
 class VirtqueueBase {
  public:
   /**
    * @brief 提交 Scatter-Gather 链并通知设备
    *
    * 在 SubmitChain 前后自动插入适当的内存屏障。
-   * 通过 CRTP 分发到派生类的 SubmitChain 实现。
+   * 通过 Deducing this 在编译期分发到派生类的 SubmitChain 实现。
    *
    * @param readable 设备只读缓冲区数组
    * @param readable_count readable 数组元素数量
@@ -65,15 +66,13 @@ class VirtqueueBase {
    *
    * @see virtio-v1.2#2.7.13 Supplying Buffers to The Device
    */
-  [[nodiscard]] auto SubmitChainWithBarrier(const IoVec* readable,
-                                            size_t readable_count,
-                                            const IoVec* writable,
-                                            size_t writable_count)
-      -> Expected<uint16_t> {
+  [[nodiscard]] auto SubmitChainWithBarrier(
+      this auto&& self, const IoVec* readable, size_t readable_count,
+      const IoVec* writable, size_t writable_count) -> Expected<uint16_t> {
     // 写屏障：确保调用方填充的数据缓冲区对设备可见
     Traits::Wmb();
-    auto result = derived().SubmitChain(readable, readable_count, writable,
-                                        writable_count);
+    auto result =
+        self.SubmitChain(readable, readable_count, writable, writable_count);
     if (result.has_value()) {
       // 全屏障：确保 Available Ring 更新对设备可见后再通知
       Traits::Mb();
@@ -85,7 +84,8 @@ class VirtqueueBase {
    * @brief 处理已完成的缓冲区并释放描述符链
    *
    * 通用逻辑：从 Used Ring 弹出已完成的元素，对每个元素调用回调函数，
-   * 然后释放描述符链。通过 CRTP 分发到派生类的 HasUsed/PopUsed/FreeChain。
+   * 然后释放描述符链。通过 Deducing this 在编译期分发到派生类的
+   * HasUsed/PopUsed/FreeChain。
    *
    * @tparam Callback 回调函数类型，签名：void(uint16_t head, uint32_t len)
    * @param callback 对每个已完成请求的回调
@@ -94,13 +94,14 @@ class VirtqueueBase {
    * @see virtio-v1.2#2.7.14 Receiving Used Buffers From The Device
    */
   template <typename Callback>
-  auto ProcessUsedWithCallback(Callback&& callback) -> uint32_t {
+  auto ProcessUsedWithCallback(this auto&& self, Callback&& callback)
+      -> uint32_t {
     // 读屏障：确保读取到设备最新的 Used Ring 写入
     Traits::Rmb();
 
     uint32_t processed = 0;
-    while (derived().HasUsed()) {
-      auto result = derived().PopUsed();
+    while (self.HasUsed()) {
+      auto result = self.PopUsed();
       if (!result.has_value()) {
         break;
       }
@@ -108,25 +109,11 @@ class VirtqueueBase {
       auto elem = *result;
       auto head = static_cast<uint16_t>(elem.id);
       callback(head, elem.len);
-      (void)derived().FreeChain(head);
+      (void)self.FreeChain(head);
       ++processed;
     }
     return processed;
   }
-
-  /**
-   * @brief 检查 Virtqueue 是否已成功初始化
-   *
-   * @return true 表示初始化成功
-   */
-  [[nodiscard]] auto IsValid() const -> bool { return derived().IsValid(); }
-
-  /**
-   * @brief 获取队列大小
-   *
-   * @return 队列大小（描述符数量）
-   */
-  [[nodiscard]] auto Size() const -> uint16_t { return derived().Size(); }
 
  protected:
   /// @name 构造/析构函数（仅允许派生类使用）
@@ -138,16 +125,6 @@ class VirtqueueBase {
   VirtqueueBase(const VirtqueueBase&) = delete;
   auto operator=(const VirtqueueBase&) -> VirtqueueBase& = delete;
   /// @}
-
- private:
-  /// @brief CRTP 向下转型（非 const 版本）
-  [[nodiscard]] auto derived() -> Derived& {
-    return *static_cast<Derived*>(this);
-  }
-  /// @brief CRTP 向下转型（const 版本）
-  [[nodiscard]] auto derived() const -> const Derived& {
-    return *static_cast<const Derived*>(this);
-  }
 };
 
 }  // namespace virtio_driver

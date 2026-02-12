@@ -37,8 +37,7 @@ namespace virtio_driver {
  * @see virtio-v1.2#2.7
  */
 template <VirtioEnvironmentTraits Traits = NullTraits>
-class SplitVirtqueue final
-    : public VirtqueueBase<Traits, SplitVirtqueue<Traits>> {
+class SplitVirtqueue final : public VirtqueueBase<Traits> {
  public:
   /**
    * @brief Descriptor Flags
@@ -717,7 +716,7 @@ class SplitVirtqueue final
   auto operator=(const SplitVirtqueue&) -> SplitVirtqueue& = delete;
   auto operator=(SplitVirtqueue&&) -> SplitVirtqueue& = delete;
   SplitVirtqueue(SplitVirtqueue&& other) noexcept
-      : VirtqueueBase<Traits, SplitVirtqueue<Traits>>(std::move(other)),
+      : VirtqueueBase<Traits>(std::move(other)),
         desc_(other.desc_),
         avail_(other.avail_),
         used_(other.used_),
