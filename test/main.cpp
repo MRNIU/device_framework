@@ -39,8 +39,10 @@ void test_main(uint32_t hart_id, uint8_t* dtb) {
   uart_puts("\n[SUCCESS] All initialization completed!\n");
   uart_puts("========================================\n\n");
 
+  test_ns16550a();
   test_virtio_mmio_device_status();
   test_virtio_blk();
+  test_virtio_blk_device();
 
   uart_puts("[INFO] System ready. Try typing on the console...\n");
 }

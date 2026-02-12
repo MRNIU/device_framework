@@ -15,7 +15,9 @@ ADD_EXECUTABLE (
     trap.cpp
     test.cpp
     mmio_test.cpp
-    virtio_blk_test.cpp)
+    virtio_blk_test.cpp
+    virtio_blk_device_test.cpp
+    ns16550a_test.cpp)
 
 # 设置编译选项
 TARGET_COMPILE_OPTIONS (

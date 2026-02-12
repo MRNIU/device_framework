@@ -171,4 +171,14 @@ void test_virtio_mmio_device_status();
  */
 void test_virtio_blk();
 
+/**
+ * @brief 测试 VirtIO 块设备统一接口
+ */
+void test_virtio_blk_device();
+
+/**
+ * @brief 测试 NS16550A 字符设备统一接口
+ */
+void test_ns16550a();
+
 #endif /* VIRTIO_DRIVER_TESTS_TEST_FRAMEWORK_H_ */
