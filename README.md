@@ -29,12 +29,15 @@ include/device_framework/
 │   └── block_device.hpp                 # BlockDevice<Derived>
 │
 └── driver/
+    ├── uart_device.hpp                  # UartDevice<Derived, DriverType> 通用 UART 适配层
     ├── virtio/                          # VirtIO 驱动族
     │   ├── traits.hpp                   # VirtioTraits = Env + Barrier + DMA
     │   ├── defs.h                       # DeviceId, ReservedFeature
     │   ├── transport/                   # 传输层 (MMIO, PCI)
     │   ├── virt_queue/                  # 虚拟队列 (Split)
-    │   └── device/                      # 设备实现 (blk, net...)
+    │   └── device/                      # 设备实现
+    │       ├── virtio_blk_defs.h        # 块设备数据结构定义
+    │       └── virtio_blk.hpp           # 块设备驱动
     ├── ns16550a/                        # NS16550A UART
     │   ├── ns16550a.hpp                 # 底层驱动
     │   └── ns16550a_device.hpp          # CharDevice 适配器

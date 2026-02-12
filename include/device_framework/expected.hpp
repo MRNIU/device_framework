@@ -161,14 +161,8 @@ struct Error {
   [[nodiscard]] constexpr auto operator==(const Error& other) const -> bool {
     return code == other.code;
   }
-  [[nodiscard]] constexpr auto operator!=(const Error& other) const -> bool {
-    return code != other.code;
-  }
   [[nodiscard]] constexpr auto operator==(ErrorCode other) const -> bool {
     return code == other;
-  }
-  [[nodiscard]] constexpr auto operator!=(ErrorCode other) const -> bool {
-    return code != other;
   }
   /// @}
 };
