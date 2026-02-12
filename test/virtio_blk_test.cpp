@@ -1,7 +1,7 @@
 /**
  * @file virtio_blk_test.cpp
  * @brief VirtIO 块设备驱动测试
- * @copyright Copyright The virtio_driver Contributors
+ * @copyright Copyright The device_framework Contributors
  *
  * 测试流程：
  * 1. 扫描 MMIO 设备，找到块设备 (Device ID == 2)
@@ -10,14 +10,14 @@
  * 4. 同步写入/读取操作并验证数据一致性
  */
 
-#include "virtio_driver/device/virtio_blk.hpp"
+#include "device_framework/driver/virtio/device/virtio_blk.hpp"
 
 #include <cstdarg>
 #include <cstdint>
 
+#include "device_framework/driver/virtio/traits.hpp"
 #include "test.h"
 #include "uart.h"
-#include "virtio_driver/traits.hpp"
 
 namespace {
 
@@ -56,10 +56,11 @@ constexpr uint32_t kBlockDeviceId = 2;
 alignas(4096) uint8_t g_vq_dma_buf[32768];
 
 /// 数据缓冲区
-alignas(16) uint8_t g_data_buf[virtio_driver::blk::kSectorSize];
+alignas(16) uint8_t g_data_buf[device_framework::virtio::blk::kSectorSize];
 
 /// 多扇区数据缓冲区（用于 SG 测试）
-alignas(16) uint8_t g_multi_sector_buf[4 * virtio_driver::blk::kSectorSize];
+alignas(16) uint8_t
+    g_multi_sector_buf[4 * device_framework::virtio::blk::kSectorSize];
 
 /**
  * @brief 扫描 MMIO 设备，找到块设备的基地址
@@ -69,11 +70,11 @@ auto find_blk_device() -> uint64_t {
   for (int i = 0; i < kMaxDevices; ++i) {
     uint64_t base = kVirtioMmioBase + i * kVirtioMmioSize;
     auto magic = *reinterpret_cast<volatile uint32_t*>(base);
-    if (magic != virtio_driver::kMmioMagicValue) {
+    if (magic != device_framework::virtio::kMmioMagicValue) {
       continue;
     }
     auto device_id = *reinterpret_cast<volatile uint32_t*>(
-        base + virtio_driver::MmioTransport<>::MmioReg::kDeviceId);
+        base + device_framework::virtio::MmioTransport<>::MmioReg::kDeviceId);
     if (device_id == kBlockDeviceId) {
       return base;
     }
@@ -114,13 +115,18 @@ void test_virtio_blk() {
   // === 测试 2: VirtioBlk::Create() 一步初始化 ===
   memzero(g_vq_dma_buf, sizeof(g_vq_dma_buf));
 
-  using VirtioBlkType = virtio_driver::blk::VirtioBlk<RiscvTraits>;
+  using VirtioBlkType = device_framework::virtio::blk::VirtioBlk<RiscvTraits>;
   uint64_t extra_features =
-      static_cast<uint64_t>(virtio_driver::blk::BlkFeatureBit::kSegMax) |
-      static_cast<uint64_t>(virtio_driver::blk::BlkFeatureBit::kSizeMax) |
-      static_cast<uint64_t>(virtio_driver::blk::BlkFeatureBit::kBlkSize) |
-      static_cast<uint64_t>(virtio_driver::blk::BlkFeatureBit::kFlush) |
-      static_cast<uint64_t>(virtio_driver::blk::BlkFeatureBit::kGeometry);
+      static_cast<uint64_t>(
+          device_framework::virtio::blk::BlkFeatureBit::kSegMax) |
+      static_cast<uint64_t>(
+          device_framework::virtio::blk::BlkFeatureBit::kSizeMax) |
+      static_cast<uint64_t>(
+          device_framework::virtio::blk::BlkFeatureBit::kBlkSize) |
+      static_cast<uint64_t>(
+          device_framework::virtio::blk::BlkFeatureBit::kFlush) |
+      static_cast<uint64_t>(
+          device_framework::virtio::blk::BlkFeatureBit::kGeometry);
   auto blk_result =
       VirtioBlkType::Create(blk_base, g_vq_dma_buf, 1, 128, extra_features);
   EXPECT_TRUE(blk_result.has_value(), "VirtioBlk::Create() succeeds");
@@ -136,12 +142,14 @@ void test_virtio_blk() {
     uint64_t features = blk.GetNegotiatedFeatures();
     bool has_version1 =
         (features &
-         static_cast<uint64_t>(virtio_driver::ReservedFeature::kVersion1)) != 0;
+         static_cast<uint64_t>(
+             device_framework::virtio::ReservedFeature::kVersion1)) != 0;
     EXPECT_TRUE(has_version1, "Negotiated features include VERSION_1");
 
     bool has_event_idx =
         (features &
-         static_cast<uint64_t>(virtio_driver::ReservedFeature::kEventIdx)) != 0;
+         static_cast<uint64_t>(
+             device_framework::virtio::ReservedFeature::kEventIdx)) != 0;
     EXPECT_TRUE(has_event_idx, "Negotiated features include EVENT_IDX");
     LOG_HEX("Negotiated features", features);
   }
@@ -165,7 +173,7 @@ void test_virtio_blk() {
 
   // === 测试 6: 同步写入扇区 0 ===
   {
-    for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+    for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
       g_data_buf[i] = static_cast<uint8_t>(0xAA + (i & 0x0F));
     }
     auto write_result = blk.Write(0, g_data_buf);
@@ -180,7 +188,7 @@ void test_virtio_blk() {
 
     if (read_result.has_value()) {
       bool data_match = true;
-      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+      for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
         if (g_data_buf[i] != static_cast<uint8_t>(0xAA + (i & 0x0F))) {
           data_match = false;
           LOG_HEX("Data mismatch at byte", i);
@@ -218,7 +226,7 @@ void test_virtio_blk() {
     for (size_t s = 0; s < kMultiSectorCount; ++s) {
       uint64_t sector = 10 + s;
       uint8_t pattern = static_cast<uint8_t>(0x10 + s);
-      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+      for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
         g_data_buf[i] = static_cast<uint8_t>(pattern + (i & 0x0F));
       }
       auto result = blk.Write(sector, g_data_buf);
@@ -249,7 +257,7 @@ void test_virtio_blk() {
         break;
       }
 
-      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+      for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
         uint8_t expected = static_cast<uint8_t>(pattern + (i & 0x0F));
         if (g_data_buf[i] != expected) {
           all_reads_ok = false;
@@ -276,7 +284,7 @@ void test_virtio_blk() {
 
     for (size_t s = 0; s < num_sectors; ++s) {
       uint8_t pattern = static_cast<uint8_t>(sectors[s] & 0xFF);
-      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+      for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
         g_data_buf[i] = static_cast<uint8_t>(pattern ^ (i & 0xFF));
       }
       auto result = blk.Write(sectors[s], g_data_buf);
@@ -299,7 +307,7 @@ void test_virtio_blk() {
         break;
       }
 
-      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+      for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
         uint8_t expected = static_cast<uint8_t>(pattern ^ (i & 0xFF));
         if (g_data_buf[i] != expected) {
           all_ok = false;
@@ -314,7 +322,7 @@ void test_virtio_blk() {
   // === 测试 12: 覆写已有数据并验证 ===
   {
     LOG("Overwrite sector 10 with new pattern and verify...");
-    for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+    for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
       g_data_buf[i] = static_cast<uint8_t>(0xDD - (i & 0x0F));
     }
 
@@ -328,7 +336,7 @@ void test_virtio_blk() {
 
     if (read_result.has_value()) {
       bool match = true;
-      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+      for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
         if (g_data_buf[i] != static_cast<uint8_t>(0xDD - (i & 0x0F))) {
           match = false;
           LOG_HEX("Overwrite verify mismatch at byte", i);
@@ -350,7 +358,7 @@ void test_virtio_blk() {
     for (int b = 0; b < kBatchCount; ++b) {
       uint64_t sector = 50 + b;
       auto pattern = static_cast<uint8_t>(0xE0 + b);
-      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+      for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
         g_data_buf[i] = static_cast<uint8_t>(pattern + (i & 0x0F));
       }
       auto wr = blk.Write(sector, g_data_buf);
@@ -373,7 +381,7 @@ void test_virtio_blk() {
         verify_ok = false;
         break;
       }
-      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+      for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
         if (g_data_buf[i] != static_cast<uint8_t>(pattern + (i & 0x0F))) {
           verify_ok = false;
           LOG_HEX("Batch verify mismatch at sector", sector);
@@ -409,19 +417,19 @@ void test_virtio_blk() {
     for (size_t s = 0; s < kSgSectors; ++s) {
       auto pattern = static_cast<uint8_t>(0xB0 + s);
       auto* sector_buf =
-          g_multi_sector_buf + s * virtio_driver::blk::kSectorSize;
-      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+          g_multi_sector_buf + s * device_framework::virtio::blk::kSectorSize;
+      for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
         sector_buf[i] = static_cast<uint8_t>(pattern + (i & 0xFF));
       }
     }
 
     // 构建 4 个 IoVec，每个指向一个扇区缓冲区
-    virtio_driver::IoVec write_iovs[kSgSectors];
+    device_framework::virtio::IoVec write_iovs[kSgSectors];
     for (size_t s = 0; s < kSgSectors; ++s) {
-      write_iovs[s] = {
-          RiscvTraits::VirtToPhys(g_multi_sector_buf +
-                                  s * virtio_driver::blk::kSectorSize),
-          virtio_driver::blk::kSectorSize};
+      write_iovs[s] = {RiscvTraits::VirtToPhys(
+                           g_multi_sector_buf +
+                           s * device_framework::virtio::blk::kSectorSize),
+                       device_framework::virtio::blk::kSectorSize};
     }
 
     // 使用 EnqueueWrite + Kick 的异步方式提交 SG 写请求
@@ -433,18 +441,19 @@ void test_virtio_blk() {
 
       // 轮询 HandleInterrupt 直到回调触发
       bool sg_write_done = false;
-      virtio_driver::ErrorCode sg_write_ec = virtio_driver::ErrorCode::kTimeout;
+      device_framework::ErrorCode sg_write_ec =
+          device_framework::ErrorCode::kTimeout;
       for (uint32_t spin = 0; spin < 100000000 && !sg_write_done; ++spin) {
         RiscvTraits::Rmb();
         blk.HandleInterrupt(
             [&sg_write_done, &sg_write_ec](void* /*token*/,
-                                           virtio_driver::ErrorCode status) {
+                                           device_framework::ErrorCode status) {
               sg_write_done = true;
               sg_write_ec = status;
             });
       }
       EXPECT_TRUE(sg_write_done, "SG write completed via callback");
-      EXPECT_EQ(static_cast<uint32_t>(virtio_driver::ErrorCode::kSuccess),
+      EXPECT_EQ(static_cast<uint32_t>(device_framework::ErrorCode::kSuccess),
                 static_cast<uint32_t>(sg_write_ec),
                 "SG write status is kSuccess");
     }
@@ -461,12 +470,12 @@ void test_virtio_blk() {
     memzero(g_multi_sector_buf, sizeof(g_multi_sector_buf));
 
     // 构建 4 个 IoVec 用于读取
-    virtio_driver::IoVec read_iovs[kSgSectors];
+    device_framework::virtio::IoVec read_iovs[kSgSectors];
     for (size_t s = 0; s < kSgSectors; ++s) {
-      read_iovs[s] = {
-          RiscvTraits::VirtToPhys(g_multi_sector_buf +
-                                  s * virtio_driver::blk::kSectorSize),
-          virtio_driver::blk::kSectorSize};
+      read_iovs[s] = {RiscvTraits::VirtToPhys(
+                          g_multi_sector_buf +
+                          s * device_framework::virtio::blk::kSectorSize),
+                      device_framework::virtio::blk::kSectorSize};
     }
 
     // 使用 EnqueueRead + Kick 的异步方式提交 SG 读请求
@@ -478,29 +487,31 @@ void test_virtio_blk() {
 
       // 轮询 HandleInterrupt 直到回调触发
       bool sg_read_done = false;
-      virtio_driver::ErrorCode sg_read_ec = virtio_driver::ErrorCode::kTimeout;
+      device_framework::ErrorCode sg_read_ec =
+          device_framework::ErrorCode::kTimeout;
       for (uint32_t spin = 0; spin < 100000000 && !sg_read_done; ++spin) {
         RiscvTraits::Rmb();
         blk.HandleInterrupt(
             [&sg_read_done, &sg_read_ec](void* /*token*/,
-                                         virtio_driver::ErrorCode status) {
+                                         device_framework::ErrorCode status) {
               sg_read_done = true;
               sg_read_ec = status;
             });
       }
       EXPECT_TRUE(sg_read_done, "SG read completed via callback");
-      EXPECT_EQ(static_cast<uint32_t>(virtio_driver::ErrorCode::kSuccess),
+      EXPECT_EQ(static_cast<uint32_t>(device_framework::ErrorCode::kSuccess),
                 static_cast<uint32_t>(sg_read_ec),
                 "SG read status is kSuccess");
 
       // 验证读回的数据与之前写入的数据一致
-      if (sg_read_done && sg_read_ec == virtio_driver::ErrorCode::kSuccess) {
+      if (sg_read_done && sg_read_ec == device_framework::ErrorCode::kSuccess) {
         bool sg_data_match = true;
         for (size_t s = 0; s < kSgSectors && sg_data_match; ++s) {
           auto pattern = static_cast<uint8_t>(0xB0 + s);
-          auto* sector_buf =
-              g_multi_sector_buf + s * virtio_driver::blk::kSectorSize;
-          for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+          auto* sector_buf = g_multi_sector_buf +
+                             s * device_framework::virtio::blk::kSectorSize;
+          for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize;
+               ++i) {
             auto expected = static_cast<uint8_t>(pattern + (i & 0xFF));
             if (sector_buf[i] != expected) {
               sg_data_match = false;
@@ -530,27 +541,29 @@ void test_virtio_blk() {
       uint64_t sector;
       uint8_t pattern;
       bool completed;
-      virtio_driver::ErrorCode status;
+      device_framework::ErrorCode status;
     };
     BatchCtx batch[kBatchRequests];
     for (size_t r = 0; r < kBatchRequests; ++r) {
       batch[r].sector = kBatchBaseSector + r;
       batch[r].pattern = static_cast<uint8_t>(0xC0 + r);
       batch[r].completed = false;
-      batch[r].status = virtio_driver::ErrorCode::kTimeout;
+      batch[r].status = device_framework::ErrorCode::kTimeout;
     }
 
     // 使用 g_multi_sector_buf 为每个请求分配独立的缓冲区
     // （异步提交共享同一 buffer 会导致设备读到被覆写的数据）
     bool all_enqueued = true;
     for (size_t r = 0; r < kBatchRequests; ++r) {
-      auto* buf = g_multi_sector_buf + r * virtio_driver::blk::kSectorSize;
-      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+      auto* buf =
+          g_multi_sector_buf + r * device_framework::virtio::blk::kSectorSize;
+      for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
         buf[i] = static_cast<uint8_t>(batch[r].pattern + (i & 0x0F));
       }
 
-      virtio_driver::IoVec iov{RiscvTraits::VirtToPhys(buf),
-                               virtio_driver::blk::kSectorSize};
+      device_framework::virtio::IoVec iov{
+          RiscvTraits::VirtToPhys(buf),
+          device_framework::virtio::blk::kSectorSize};
       auto enq =
           blk.EnqueueWrite(0, batch[r].sector, &iov, 1,
                            reinterpret_cast<void*>(static_cast<uintptr_t>(r)));
@@ -572,7 +585,8 @@ void test_virtio_blk() {
            spin < 100000000 && completed_count < kBatchRequests; ++spin) {
         RiscvTraits::Rmb();
         blk.HandleInterrupt([&batch, &completed_count, kBatchRequests](
-                                void* token, virtio_driver::ErrorCode status) {
+                                void* token,
+                                device_framework::ErrorCode status) {
           auto idx = static_cast<size_t>(reinterpret_cast<uintptr_t>(token));
           if (idx < kBatchRequests && !batch[idx].completed) {
             batch[idx].completed = true;
@@ -590,7 +604,7 @@ void test_virtio_blk() {
 
       bool all_success = true;
       for (size_t r = 0; r < kBatchRequests; ++r) {
-        if (batch[r].status != virtio_driver::ErrorCode::kSuccess) {
+        if (batch[r].status != device_framework::ErrorCode::kSuccess) {
           all_success = false;
           LOG_HEX("  Batch request failed, index", r);
           break;
@@ -610,7 +624,7 @@ void test_virtio_blk() {
         LOG_HEX("  Batch verify read failed at sector", batch[r].sector);
         break;
       }
-      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+      for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
         auto expected = static_cast<uint8_t>(batch[r].pattern + (i & 0x0F));
         if (g_data_buf[i] != expected) {
           batch_verify_ok = false;
@@ -638,11 +652,12 @@ void test_virtio_blk() {
     for (int k = 0; k < kRapidKickCount; ++k) {
       uint64_t sector = 40 + k;
       auto pattern = static_cast<uint8_t>(0xD0 + k);
-      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+      for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
         g_data_buf[i] = static_cast<uint8_t>(pattern + (i & 0x0F));
       }
-      virtio_driver::IoVec iov{RiscvTraits::VirtToPhys(g_data_buf),
-                               virtio_driver::blk::kSectorSize};
+      device_framework::virtio::IoVec iov{
+          RiscvTraits::VirtToPhys(g_data_buf),
+          device_framework::virtio::blk::kSectorSize};
       auto enq = blk.EnqueueWrite(0, sector, &iov, 1);
       if (!enq.has_value()) {
         rapid_ok = false;
@@ -657,7 +672,7 @@ void test_virtio_blk() {
     for (uint32_t spin = 0; spin < 100000000; ++spin) {
       RiscvTraits::Rmb();
       blk.HandleInterrupt(
-          [](void* /*token*/, virtio_driver::ErrorCode /*status*/) {});
+          [](void* /*token*/, device_framework::ErrorCode /*status*/) {});
       // 给设备足够时间处理
       if (spin > 1000) {
         break;
@@ -684,10 +699,11 @@ void test_virtio_blk() {
   {
     LOG("Testing HandleInterrupt with no pending requests...");
     uint32_t callback_count = 0;
-    blk.HandleInterrupt([&callback_count](void* /*token*/,
-                                          virtio_driver::ErrorCode /*status*/) {
-      ++callback_count;
-    });
+    blk.HandleInterrupt(
+        [&callback_count](void* /*token*/,
+                          device_framework::ErrorCode /*status*/) {
+          ++callback_count;
+        });
     EXPECT_EQ(static_cast<uint32_t>(0), callback_count,
               "HandleInterrupt: callback not invoked when no pending requests");
   }
@@ -699,12 +715,13 @@ void test_virtio_blk() {
     constexpr uintptr_t kMagicToken = 0xDEADBEEF;
 
     // 写入已知数据
-    for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+    for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
       g_data_buf[i] = static_cast<uint8_t>(0x77 + (i & 0x0F));
     }
 
-    virtio_driver::IoVec iov{RiscvTraits::VirtToPhys(g_data_buf),
-                             virtio_driver::blk::kSectorSize};
+    device_framework::virtio::IoVec iov{
+        RiscvTraits::VirtToPhys(g_data_buf),
+        device_framework::virtio::blk::kSectorSize};
     auto enq = blk.EnqueueWrite(0, kTestSector, &iov, 1,
                                 reinterpret_cast<void*>(kMagicToken));
     EXPECT_TRUE(enq.has_value(), "HandleInterrupt token: enqueue succeeds");
@@ -714,15 +731,15 @@ void test_virtio_blk() {
 
       bool cb_invoked = false;
       uintptr_t received_token = 0;
-      virtio_driver::ErrorCode received_status =
-          virtio_driver::ErrorCode::kTimeout;
+      device_framework::ErrorCode received_status =
+          device_framework::ErrorCode::kTimeout;
       uint32_t cb_count = 0;
 
       for (uint32_t spin = 0; spin < 100000000 && !cb_invoked; ++spin) {
         RiscvTraits::Rmb();
         blk.HandleInterrupt(
             [&cb_invoked, &received_token, &received_status, &cb_count](
-                void* token, virtio_driver::ErrorCode status) {
+                void* token, device_framework::ErrorCode status) {
               cb_invoked = true;
               received_token = reinterpret_cast<uintptr_t>(token);
               received_status = status;
@@ -734,7 +751,7 @@ void test_virtio_blk() {
       EXPECT_EQ(static_cast<uint64_t>(kMagicToken),
                 static_cast<uint64_t>(received_token),
                 "HandleInterrupt token: token matches 0xDEADBEEF");
-      EXPECT_EQ(static_cast<uint32_t>(virtio_driver::ErrorCode::kSuccess),
+      EXPECT_EQ(static_cast<uint32_t>(device_framework::ErrorCode::kSuccess),
                 static_cast<uint32_t>(received_status),
                 "HandleInterrupt token: status is kSuccess");
       EXPECT_EQ(static_cast<uint32_t>(1), cb_count,
@@ -750,8 +767,9 @@ void test_virtio_blk() {
     // 清零缓冲区，读回之前测试 19 写入的数据
     memzero(g_data_buf, sizeof(g_data_buf));
 
-    virtio_driver::IoVec iov{RiscvTraits::VirtToPhys(g_data_buf),
-                             virtio_driver::blk::kSectorSize};
+    device_framework::virtio::IoVec iov{
+        RiscvTraits::VirtToPhys(g_data_buf),
+        device_framework::virtio::blk::kSectorSize};
     auto enq = blk.EnqueueRead(0, kTestSector, &iov, 1, nullptr);
     EXPECT_TRUE(enq.has_value(), "HandleInterrupt read: enqueue succeeds");
 
@@ -759,27 +777,29 @@ void test_virtio_blk() {
       blk.Kick(0);
 
       bool cb_invoked = false;
-      virtio_driver::ErrorCode cb_status = virtio_driver::ErrorCode::kTimeout;
+      device_framework::ErrorCode cb_status =
+          device_framework::ErrorCode::kTimeout;
 
       for (uint32_t spin = 0; spin < 100000000 && !cb_invoked; ++spin) {
         RiscvTraits::Rmb();
         blk.HandleInterrupt(
             [&cb_invoked, &cb_status](void* /*token*/,
-                                      virtio_driver::ErrorCode status) {
+                                      device_framework::ErrorCode status) {
               cb_invoked = true;
               cb_status = status;
             });
       }
 
       EXPECT_TRUE(cb_invoked, "HandleInterrupt read: callback invoked");
-      EXPECT_EQ(static_cast<uint32_t>(virtio_driver::ErrorCode::kSuccess),
+      EXPECT_EQ(static_cast<uint32_t>(device_framework::ErrorCode::kSuccess),
                 static_cast<uint32_t>(cb_status),
                 "HandleInterrupt read: status is kSuccess");
 
       // 验证读回数据与测试 19 写入的 pattern 一致
-      if (cb_invoked && cb_status == virtio_driver::ErrorCode::kSuccess) {
+      if (cb_invoked && cb_status == device_framework::ErrorCode::kSuccess) {
         bool data_ok = true;
-        for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+        for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize;
+             ++i) {
           auto expected = static_cast<uint8_t>(0x77 + (i & 0x0F));
           if (g_data_buf[i] != expected) {
             data_ok = false;
@@ -804,26 +824,28 @@ void test_virtio_blk() {
     struct TokenCtx {
       uintptr_t token;
       bool completed;
-      virtio_driver::ErrorCode status;
+      device_framework::ErrorCode status;
     };
     TokenCtx contexts[kBatchSize];
     for (size_t i = 0; i < kBatchSize; ++i) {
       contexts[i].token = 0xA000 + i;  // 不同的 magic token
       contexts[i].completed = false;
-      contexts[i].status = virtio_driver::ErrorCode::kTimeout;
+      contexts[i].status = device_framework::ErrorCode::kTimeout;
     }
 
     // 使用 g_multi_sector_buf 为每个请求分配独立的缓冲区
     bool all_enqueued = true;
     for (size_t r = 0; r < kBatchSize; ++r) {
-      auto* buf = g_multi_sector_buf + r * virtio_driver::blk::kSectorSize;
+      auto* buf =
+          g_multi_sector_buf + r * device_framework::virtio::blk::kSectorSize;
       auto pattern = static_cast<uint8_t>(0xF0 + r);
-      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+      for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
         buf[i] = static_cast<uint8_t>(pattern + (i & 0xFF));
       }
 
-      virtio_driver::IoVec iov{RiscvTraits::VirtToPhys(buf),
-                               virtio_driver::blk::kSectorSize};
+      device_framework::virtio::IoVec iov{
+          RiscvTraits::VirtToPhys(buf),
+          device_framework::virtio::blk::kSectorSize};
       auto enq = blk.EnqueueWrite(0, kBaseSector + r, &iov, 1,
                                   reinterpret_cast<void*>(contexts[r].token));
       if (!enq.has_value()) {
@@ -841,18 +863,19 @@ void test_virtio_blk() {
       for (uint32_t spin = 0; spin < 100000000 && completed_count < kBatchSize;
            ++spin) {
         RiscvTraits::Rmb();
-        blk.HandleInterrupt([&contexts, &completed_count, kBatchSize](
-                                void* token, virtio_driver::ErrorCode status) {
-          auto tok = reinterpret_cast<uintptr_t>(token);
-          for (size_t i = 0; i < kBatchSize; ++i) {
-            if (contexts[i].token == tok && !contexts[i].completed) {
-              contexts[i].completed = true;
-              contexts[i].status = status;
-              ++completed_count;
-              break;
-            }
-          }
-        });
+        blk.HandleInterrupt(
+            [&contexts, &completed_count, kBatchSize](
+                void* token, device_framework::ErrorCode status) {
+              auto tok = reinterpret_cast<uintptr_t>(token);
+              for (size_t i = 0; i < kBatchSize; ++i) {
+                if (contexts[i].token == tok && !contexts[i].completed) {
+                  contexts[i].completed = true;
+                  contexts[i].status = status;
+                  ++completed_count;
+                  break;
+                }
+              }
+            });
         if (completed_count >= kBatchSize) {
           break;
         }
@@ -869,7 +892,7 @@ void test_virtio_blk() {
           all_tokens_ok = false;
           LOG_HEX("  Token not completed, index", i);
         }
-        if (contexts[i].status != virtio_driver::ErrorCode::kSuccess) {
+        if (contexts[i].status != device_framework::ErrorCode::kSuccess) {
           all_status_ok = false;
           LOG_HEX("  Token request failed, index", i);
         }
@@ -889,11 +912,12 @@ void test_virtio_blk() {
     uint64_t bytes_before = stats_before.bytes_transferred;
 
     // 执行一次写请求
-    for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+    for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
       g_data_buf[i] = static_cast<uint8_t>(0x99);
     }
-    virtio_driver::IoVec iov{RiscvTraits::VirtToPhys(g_data_buf),
-                             virtio_driver::blk::kSectorSize};
+    device_framework::virtio::IoVec iov{
+        RiscvTraits::VirtToPhys(g_data_buf),
+        device_framework::virtio::blk::kSectorSize};
     auto enq = blk.EnqueueWrite(0, 80, &iov, 1, nullptr);
     EXPECT_TRUE(enq.has_value(), "HandleInterrupt stats: enqueue succeeds");
 
@@ -904,7 +928,7 @@ void test_virtio_blk() {
       for (uint32_t spin = 0; spin < 100000000 && !done; ++spin) {
         RiscvTraits::Rmb();
         blk.HandleInterrupt(
-            [&done](void* /*token*/, virtio_driver::ErrorCode /*status*/) {
+            [&done](void* /*token*/, device_framework::ErrorCode /*status*/) {
               done = true;
             });
       }
@@ -928,11 +952,12 @@ void test_virtio_blk() {
     constexpr uint64_t kTestSector = 90;
 
     // 写入一个扇区
-    for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+    for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
       g_data_buf[i] = static_cast<uint8_t>(0xAB);
     }
-    virtio_driver::IoVec iov{RiscvTraits::VirtToPhys(g_data_buf),
-                             virtio_driver::blk::kSectorSize};
+    device_framework::virtio::IoVec iov{
+        RiscvTraits::VirtToPhys(g_data_buf),
+        device_framework::virtio::blk::kSectorSize};
     auto enq = blk.EnqueueWrite(0, kTestSector, &iov, 1, nullptr);
     EXPECT_TRUE(enq.has_value(),
                 "HandleInterrupt idempotent: enqueue succeeds");
@@ -946,7 +971,7 @@ void test_virtio_blk() {
         RiscvTraits::Rmb();
         blk.HandleInterrupt(
             [&first_round_cb](void* /*token*/,
-                              virtio_driver::ErrorCode /*status*/) {
+                              device_framework::ErrorCode /*status*/) {
               ++first_round_cb;
             });
       }
@@ -957,7 +982,7 @@ void test_virtio_blk() {
       uint32_t second_round_cb = 0;
       blk.HandleInterrupt(
           [&second_round_cb](void* /*token*/,
-                             virtio_driver::ErrorCode /*status*/) {
+                             device_framework::ErrorCode /*status*/) {
             ++second_round_cb;
           });
       EXPECT_EQ(static_cast<uint32_t>(0), second_round_cb,
@@ -967,7 +992,7 @@ void test_virtio_blk() {
       uint32_t third_round_cb = 0;
       blk.HandleInterrupt(
           [&third_round_cb](void* /*token*/,
-                            virtio_driver::ErrorCode /*status*/) {
+                            device_framework::ErrorCode /*status*/) {
             ++third_round_cb;
           });
       EXPECT_EQ(static_cast<uint32_t>(0), third_round_cb,

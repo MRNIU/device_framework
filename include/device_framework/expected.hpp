@@ -1,20 +1,23 @@
 /**
- * @copyright Copyright The virtio_driver Contributors
+ * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef VIRTIO_DRIVER_EXPECTED_HPP_
-#define VIRTIO_DRIVER_EXPECTED_HPP_
+#ifndef DEVICE_FRAMEWORK_EXPECTED_HPP_
+#define DEVICE_FRAMEWORK_EXPECTED_HPP_
 
 #include <cstddef>
 #include <cstdint>
 #include <expected>
 
-namespace virtio_driver {
+namespace device_framework {
 
-/// virtio 驱动错误码
+/// @brief 设备框架错误码
 enum class ErrorCode : uint32_t {
   /// 操作成功
   kSuccess = 0,
+
+  /// @name VirtIO 传输层错误
+  /// @{
   /// 无效的 MMIO 魔数
   kInvalidMagic = 1,
   /// 无效的版本号
@@ -49,6 +52,25 @@ enum class ErrorCode : uint32_t {
   kInvalidArgument,
   /// 操作超时
   kTimeout,
+  /// @}
+
+  /// @name 设备操作层错误
+  /// @{
+  /// 设备已处于打开状态
+  kDeviceAlreadyOpen,
+  /// 设备未打开
+  kDeviceNotOpen,
+  /// 设备不支持此操作
+  kDeviceNotSupported,
+  /// 权限不足
+  kDevicePermissionDenied,
+  /// 块访问未对齐
+  kDeviceBlockUnaligned,
+  /// 块号超出范围
+  kDeviceBlockOutOfRange,
+  /// 读取失败
+  kDeviceReadFailed,
+  /// @}
 };
 
 /**
@@ -94,13 +116,27 @@ constexpr auto GetErrorMessage(ErrorCode code) -> const char* {
       return "Invalid argument";
     case ErrorCode::kTimeout:
       return "Operation timed out";
+    case ErrorCode::kDeviceAlreadyOpen:
+      return "Device already open";
+    case ErrorCode::kDeviceNotOpen:
+      return "Device not open";
+    case ErrorCode::kDeviceNotSupported:
+      return "Device does not support this operation";
+    case ErrorCode::kDevicePermissionDenied:
+      return "Permission denied";
+    case ErrorCode::kDeviceBlockUnaligned:
+      return "Block access not aligned";
+    case ErrorCode::kDeviceBlockOutOfRange:
+      return "Block number out of range";
+    case ErrorCode::kDeviceReadFailed:
+      return "Device read failed";
     default:
       return "Unknown error";
   }
 }
 
 /**
- * @brief virtio 驱动错误类型
+ * @brief 设备框架错误类型
  */
 struct Error {
   ErrorCode code;
@@ -137,10 +173,10 @@ struct Error {
   /// @}
 };
 
-/// std::expected 别名模板
+/// @brief std::expected 别名模板
 template <typename T>
 using Expected = std::expected<T, Error>;
 
-}  // namespace virtio_driver
+}  // namespace device_framework
 
-#endif /* VIRTIO_DRIVER_EXPECTED_HPP_ */
+#endif /* DEVICE_FRAMEWORK_EXPECTED_HPP_ */

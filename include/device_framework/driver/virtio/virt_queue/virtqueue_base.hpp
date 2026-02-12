@@ -1,17 +1,17 @@
 /**
- * @copyright Copyright The virtio_driver Contributors
+ * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef VIRTIO_DRIVER_VIRT_QUEUE_VIRTQUEUE_BASE_HPP_
-#define VIRTIO_DRIVER_VIRT_QUEUE_VIRTQUEUE_BASE_HPP_
+#ifndef DEVICE_FRAMEWORK_DRIVER_VIRTIO_VIRT_QUEUE_VIRTQUEUE_BASE_HPP_
+#define DEVICE_FRAMEWORK_DRIVER_VIRTIO_VIRT_QUEUE_VIRTQUEUE_BASE_HPP_
 
 #include <cstdint>
 
-#include "virtio_driver/expected.hpp"
-#include "virtio_driver/traits.hpp"
-#include "virtio_driver/virt_queue/misc.hpp"
+#include "device_framework/driver/virtio/traits.hpp"
+#include "device_framework/driver/virtio/virt_queue/misc.hpp"
+#include "device_framework/expected.hpp"
 
-namespace virtio_driver {
+namespace device_framework::virtio {
 
 /**
  * @brief Virtqueue 基类（C++23 Deducing this 编译期多态）
@@ -39,7 +39,7 @@ namespace virtio_driver {
  * @tparam Traits 平台环境特征类型
  * @see virtio-v1.2#2.7 / #2.8
  */
-template <VirtioEnvironmentTraits Traits = NullTraits>
+template <VirtioTraits Traits = NullVirtioTraits>
 class VirtqueueBase {
  public:
   /**
@@ -116,6 +116,6 @@ class VirtqueueBase {
   /// @}
 };
 
-}  // namespace virtio_driver
+}  // namespace device_framework::virtio
 
-#endif /* VIRTIO_DRIVER_VIRT_QUEUE_VIRTQUEUE_BASE_HPP_ */
+#endif /* DEVICE_FRAMEWORK_DRIVER_VIRTIO_VIRT_QUEUE_VIRTQUEUE_BASE_HPP_ */

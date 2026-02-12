@@ -1,5 +1,5 @@
 /**
- * @copyright Copyright The virtio_driver Contributors
+ * @copyright Copyright The device_framework Contributors
  */
 
 /* GNU ld (GNU Binutils for Ubuntu) 2.41 */

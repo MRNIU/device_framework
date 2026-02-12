@@ -1,13 +1,13 @@
 /**
- * @copyright Copyright The virtio_driver Contributors
+ * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef VIRTIO_DRIVER_DEFS_H_
-#define VIRTIO_DRIVER_DEFS_H_
+#ifndef DEVICE_FRAMEWORK_DRIVER_VIRTIO_DEFS_H_
+#define DEVICE_FRAMEWORK_DRIVER_VIRTIO_DEFS_H_
 
 #include <cstdint>
 
-namespace virtio_driver {
+namespace device_framework::virtio {
 
 /**
  * @brief Virtio 设备 ID 定义
@@ -86,6 +86,6 @@ enum class ReservedFeature : uint64_t {
   kRingReset = 0x10000000000,
 };
 
-}  // namespace virtio_driver
+}  // namespace device_framework::virtio
 
-#endif /* VIRTIO_DRIVER_DEFS_H_ */
+#endif /* DEVICE_FRAMEWORK_DRIVER_VIRTIO_DEFS_H_ */

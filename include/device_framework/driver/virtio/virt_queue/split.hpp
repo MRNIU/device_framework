@@ -1,18 +1,18 @@
 /**
- * @copyright Copyright The virtio_driver Contributors
+ * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef VIRTIO_DRIVER_VIRT_QUEUE_SPLIT_HPP_
-#define VIRTIO_DRIVER_VIRT_QUEUE_SPLIT_HPP_
+#ifndef DEVICE_FRAMEWORK_DRIVER_VIRTIO_VIRT_QUEUE_SPLIT_HPP_
+#define DEVICE_FRAMEWORK_DRIVER_VIRTIO_VIRT_QUEUE_SPLIT_HPP_
 
 #include <utility>
 
-#include "virtio_driver/expected.hpp"
-#include "virtio_driver/traits.hpp"
-#include "virtio_driver/virt_queue/misc.hpp"
-#include "virtio_driver/virt_queue/virtqueue_base.hpp"
+#include "device_framework/driver/virtio/traits.hpp"
+#include "device_framework/driver/virtio/virt_queue/misc.hpp"
+#include "device_framework/driver/virtio/virt_queue/virtqueue_base.hpp"
+#include "device_framework/expected.hpp"
 
-namespace virtio_driver {
+namespace device_framework::virtio {
 
 /**
  * @brief Split Virtqueue 管理类
@@ -36,7 +36,7 @@ namespace virtio_driver {
  * @tparam Traits 平台环境特征类型
  * @see virtio-v1.2#2.7
  */
-template <VirtioEnvironmentTraits Traits = NullTraits>
+template <VirtioTraits Traits = NullVirtioTraits>
 class SplitVirtqueue final : public VirtqueueBase<Traits> {
  public:
   /**
@@ -694,6 +694,6 @@ class SplitVirtqueue final : public VirtqueueBase<Traits> {
   bool is_valid_ = false;
 };
 
-}  // namespace virtio_driver
+}  // namespace device_framework::virtio
 
-#endif /* VIRTIO_DRIVER_VIRT_QUEUE_SPLIT_HPP_ */
+#endif /* DEVICE_FRAMEWORK_DRIVER_VIRTIO_VIRT_QUEUE_SPLIT_HPP_ */

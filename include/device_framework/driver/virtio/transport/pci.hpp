@@ -1,20 +1,20 @@
 /**
- * @copyright Copyright The virtio_driver Contributors
+ * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef VIRTIO_DRIVER_TRANSPORT_PCI_HPP_
-#define VIRTIO_DRIVER_TRANSPORT_PCI_HPP_
+#ifndef DEVICE_FRAMEWORK_DRIVER_VIRTIO_TRANSPORT_PCI_HPP_
+#define DEVICE_FRAMEWORK_DRIVER_VIRTIO_TRANSPORT_PCI_HPP_
 
-#include "virtio_driver/transport/transport.hpp"
+#include "device_framework/driver/virtio/transport/transport.hpp"
 
-namespace virtio_driver {
+namespace device_framework::virtio {
 
 /**
  * @brief Virtio PCI 传输层（占位）
  * @todo 实现 PCI Modern (1.0+) 传输层
  * @see virtio-v1.2#4.1
  */
-template <VirtioEnvironmentTraits Traits = NullTraits>
+template <VirtioTraits Traits = NullVirtioTraits>
 class PciTransport final : public Transport<Traits> {
  public:
   [[nodiscard]] auto IsValid() const -> bool { return false; }
@@ -58,6 +58,6 @@ class PciTransport final : public Transport<Traits> {
   [[nodiscard]] auto GetConfigGeneration() const -> uint32_t { return 0; }
 };
 
-}  // namespace virtio_driver
+}  // namespace device_framework::virtio
 
-#endif /* VIRTIO_DRIVER_TRANSPORT_PCI_HPP_ */
+#endif /* DEVICE_FRAMEWORK_DRIVER_VIRTIO_TRANSPORT_PCI_HPP_ */

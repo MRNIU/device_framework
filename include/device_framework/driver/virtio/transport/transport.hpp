@@ -1,15 +1,15 @@
 /**
- * @copyright Copyright The virtio_driver Contributors
+ * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef VIRTIO_DRIVER_TRANSPORT_TRANSPORT_HPP_
-#define VIRTIO_DRIVER_TRANSPORT_TRANSPORT_HPP_
+#ifndef DEVICE_FRAMEWORK_DRIVER_VIRTIO_TRANSPORT_TRANSPORT_HPP_
+#define DEVICE_FRAMEWORK_DRIVER_VIRTIO_TRANSPORT_TRANSPORT_HPP_
 
-#include "virtio_driver/defs.h"
-#include "virtio_driver/expected.hpp"
-#include "virtio_driver/traits.hpp"
+#include "device_framework/driver/virtio/defs.h"
+#include "device_framework/driver/virtio/traits.hpp"
+#include "device_framework/expected.hpp"
 
-namespace virtio_driver {
+namespace device_framework::virtio {
 
 /**
  * @brief Virtio 传输层基类（零虚表开销，C++23 Deducing this）
@@ -48,7 +48,7 @@ namespace virtio_driver {
  * @tparam Traits 平台环境特征类型
  * @see virtio-v1.2#4 Virtio Transport Options
  */
-template <VirtioEnvironmentTraits Traits = NullTraits>
+template <VirtioTraits Traits = NullVirtioTraits>
 class Transport {
  public:
   /**
@@ -118,6 +118,6 @@ class Transport {
   /// @}
 };
 
-}  // namespace virtio_driver
+}  // namespace device_framework::virtio
 
-#endif /* VIRTIO_DRIVER_TRANSPORT_TRANSPORT_HPP_ */
+#endif /* DEVICE_FRAMEWORK_DRIVER_VIRTIO_TRANSPORT_TRANSPORT_HPP_ */

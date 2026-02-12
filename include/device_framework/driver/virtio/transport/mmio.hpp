@@ -1,14 +1,14 @@
 /**
- * @copyright Copyright The virtio_driver Contributors
+ * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef VIRTIO_DRIVER_TRANSPORT_MMIO_HPP_
-#define VIRTIO_DRIVER_TRANSPORT_MMIO_HPP_
+#ifndef DEVICE_FRAMEWORK_DRIVER_VIRTIO_TRANSPORT_MMIO_HPP_
+#define DEVICE_FRAMEWORK_DRIVER_VIRTIO_TRANSPORT_MMIO_HPP_
 
-#include "virtio_driver/expected.hpp"
-#include "virtio_driver/transport/transport.hpp"
+#include "device_framework/driver/virtio/transport/transport.hpp"
+#include "device_framework/expected.hpp"
 
-namespace virtio_driver {
+namespace device_framework::virtio {
 
 /**
  * @brief MMIO 中断状态位
@@ -55,7 +55,7 @@ static constexpr uint32_t kMmioVersionModern = 0x02;
  *
  * @see virtio-v1.2#4.2 Virtio Over MMIO
  */
-template <VirtioEnvironmentTraits Traits = NullTraits>
+template <VirtioTraits Traits = NullVirtioTraits>
 class MmioTransport final : public Transport<Traits> {
  public:
   /**
@@ -399,6 +399,6 @@ class MmioTransport final : public Transport<Traits> {
   uint32_t vendor_id_;
 };
 
-}  // namespace virtio_driver
+}  // namespace device_framework::virtio
 
-#endif /* VIRTIO_DRIVER_TRANSPORT_MMIO_HPP_ */
+#endif /* DEVICE_FRAMEWORK_DRIVER_VIRTIO_TRANSPORT_MMIO_HPP_ */

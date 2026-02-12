@@ -1,4 +1,4 @@
-# Copyright The virtio_driver Contributors
+# Copyright The device_framework Contributors
 
 PROJECT (test)
 
@@ -39,7 +39,7 @@ TARGET_LINK_OPTIONS (
     -Wl,--build-id=none)
 
 # 添加要链接的库
-TARGET_LINK_LIBRARIES (${PROJECT_NAME} PRIVATE virtio_driver)
+TARGET_LINK_LIBRARIES (${PROJECT_NAME} PRIVATE device_framework)
 
 # 生成反汇编文件以便调试
 ADD_CUSTOM_COMMAND (

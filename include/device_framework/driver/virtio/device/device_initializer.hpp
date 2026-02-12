@@ -1,15 +1,15 @@
 /**
- * @copyright Copyright The virtio_driver Contributors
+ * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef VIRTIO_DRIVER_DEVICE_DEVICE_INITIALIZER_HPP_
-#define VIRTIO_DRIVER_DEVICE_DEVICE_INITIALIZER_HPP_
+#ifndef DEVICE_FRAMEWORK_DRIVER_VIRTIO_DEVICE_DEVICE_INITIALIZER_HPP_
+#define DEVICE_FRAMEWORK_DRIVER_VIRTIO_DEVICE_DEVICE_INITIALIZER_HPP_
 
-#include "virtio_driver/expected.hpp"
-#include "virtio_driver/traits.hpp"
-#include "virtio_driver/transport/transport.hpp"
+#include "device_framework/driver/virtio/traits.hpp"
+#include "device_framework/driver/virtio/transport/transport.hpp"
+#include "device_framework/expected.hpp"
 
-namespace virtio_driver {
+namespace device_framework::virtio {
 
 /**
  * @brief Virtio 设备初始化器
@@ -42,7 +42,7 @@ namespace virtio_driver {
  * @tparam TransportImpl 具体传输层类型（如 MmioTransport<Traits>）
  * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
  */
-template <VirtioEnvironmentTraits Traits, typename TransportImpl>
+template <VirtioTraits Traits, typename TransportImpl>
 class DeviceInitializer {
  public:
   /**
@@ -217,6 +217,6 @@ class DeviceInitializer {
   TransportImpl& transport_;
 };
 
-}  // namespace virtio_driver
+}  // namespace device_framework::virtio
 
-#endif /* VIRTIO_DRIVER_DEVICE_DEVICE_INITIALIZER_HPP_ */
+#endif /* DEVICE_FRAMEWORK_DRIVER_VIRTIO_DEVICE_DEVICE_INITIALIZER_HPP_ */

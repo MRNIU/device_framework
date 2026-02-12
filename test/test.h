@@ -1,5 +1,5 @@
 /**
- * @copyright Copyright The virtio_driver Contributors
+ * @copyright Copyright The device_framework Contributors
  */
 
 #ifndef VIRTIO_DRIVER_TESTS_TEST_FRAMEWORK_H_

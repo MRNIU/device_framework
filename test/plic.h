@@ -1,7 +1,7 @@
 /**
  * @file plic.h
  * @brief PLIC (Platform-Level Interrupt Controller) 支持
- * @copyright Copyright The virtio_driver Contributors
+ * @copyright Copyright The device_framework Contributors
  */
 
 #ifndef VIRTIO_DRIVER_TESTS_PLIC_H_

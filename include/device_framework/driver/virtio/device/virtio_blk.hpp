@@ -1,20 +1,20 @@
 /**
- * @copyright Copyright The virtio_driver Contributors
+ * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef VIRTIO_DRIVER_DEVICE_VIRTIO_BLK_HPP_
-#define VIRTIO_DRIVER_DEVICE_VIRTIO_BLK_HPP_
+#ifndef DEVICE_FRAMEWORK_DRIVER_VIRTIO_DEVICE_VIRTIO_BLK_HPP_
+#define DEVICE_FRAMEWORK_DRIVER_VIRTIO_DEVICE_VIRTIO_BLK_HPP_
 
 #include <utility>
 
-#include "virtio_driver/defs.h"
-#include "virtio_driver/device/device_initializer.hpp"
-#include "virtio_driver/expected.hpp"
-#include "virtio_driver/traits.hpp"
-#include "virtio_driver/transport/mmio.hpp"
-#include "virtio_driver/virt_queue/split.hpp"
+#include "device_framework/driver/virtio/defs.h"
+#include "device_framework/driver/virtio/device/device_initializer.hpp"
+#include "device_framework/driver/virtio/traits.hpp"
+#include "device_framework/driver/virtio/transport/mmio.hpp"
+#include "device_framework/driver/virtio/virt_queue/split.hpp"
+#include "device_framework/expected.hpp"
 
-namespace virtio_driver::blk {
+namespace device_framework::virtio::blk {
 
 /**
  * @brief 块设备特性位定义
@@ -321,7 +321,7 @@ struct VirtioStats {
  * @see virtio-v1.2#5.2 Block Device
  * @see 架构文档 §3
  */
-template <VirtioEnvironmentTraits Traits = NullTraits,
+template <VirtioTraits Traits = NullVirtioTraits,
           template <class> class TransportT = MmioTransport,
           template <class> class VirtqueueT = SplitVirtqueue>
 class VirtioBlk {
@@ -1130,6 +1130,6 @@ class VirtioBlk {
   volatile bool request_completed_;
 };
 
-}  // namespace virtio_driver::blk
+}  // namespace device_framework::virtio::blk
 
-#endif /* VIRTIO_DRIVER_DEVICE_VIRTIO_BLK_HPP_ */
+#endif /* DEVICE_FRAMEWORK_DRIVER_VIRTIO_DEVICE_VIRTIO_BLK_HPP_ */

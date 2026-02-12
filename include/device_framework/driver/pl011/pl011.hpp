@@ -1,0 +1,151 @@
+/**
+ * @copyright Copyright The device_framework Contributors
+ */
+
+#ifndef DEVICE_FRAMEWORK_DRIVER_PL011_PL011_HPP_
+#define DEVICE_FRAMEWORK_DRIVER_PL011_PL011_HPP_
+
+#include <cstdint>
+#include <optional>
+
+namespace device_framework::pl011 {
+
+/**
+ * @brief PL011 串口驱动
+ *
+ * 通过 MMIO 访问 PL011 UART 寄存器，提供字符读写功能。
+ * Header-only 实现，使用 volatile 指针直接访问寄存器。
+ *
+ * @see https://developer.arm.com/documentation/ddi0183/g/
+ */
+class Pl011 {
+ public:
+  /**
+   * @brief 构造函数
+   * @param dev_addr  设备 MMIO 基地址
+   * @param clock     串口时钟（0 表示不设置波特率）
+   * @param baud_rate 波特率（0 表示不设置波特率）
+   */
+  explicit Pl011(uint64_t dev_addr, uint64_t clock = 0, uint64_t baud_rate = 0)
+      : base_addr_(dev_addr), base_clock_(clock), baud_rate_(baud_rate) {
+    // Clear all errors
+    Write32(kRegRSRECR, 0);
+    // Disable everything
+    Write32(kRegCR, 0);
+
+    if (baud_rate_ != 0) {
+      uint32_t divisor = (base_clock_ * 4) / baud_rate_;
+      Write32(kRegIBRD, divisor >> 6);
+      Write32(kRegFBRD, divisor & 0x3f);
+    }
+
+    // Configure TX to 8 bits, 1 stop bit, no parity, fifo disabled
+    Write32(kRegLCRH, kLCRHWlen8);
+    // Enable receive interrupt
+    Write32(kRegIMSC, kIMSCRxim);
+    // Enable UART and RX/TX
+    Write32(kRegCR, kCREnable | kCRTxEnable | kCRRxEnable);
+  }
+
+  /// @name 默认构造/析构函数
+  /// @{
+  Pl011() = default;
+  Pl011(const Pl011&) = delete;
+  Pl011(Pl011&&) = default;
+  auto operator=(const Pl011&) -> Pl011& = delete;
+  auto operator=(Pl011&&) -> Pl011& = default;
+  ~Pl011() = default;
+  /// @}
+
+  /**
+   * @brief 写入一个字符
+   * @param c 待写入的字符
+   */
+  void PutChar(uint8_t c) const {
+    // Wait until there is space in the FIFO
+    while (Read32(kRegFR) & kFRTxFIFO) {
+    }
+    Write32(kRegDR, c);
+  }
+
+  /**
+   * @brief 阻塞式读取一个字符
+   * @return 读取到的字符
+   */
+  [[nodiscard]] auto GetChar() const -> uint8_t {
+    // Wait until there is data in the FIFO
+    while (Read32(kRegFR) & kFRRXFE) {
+    }
+    return static_cast<uint8_t>(Read32(kRegDR));
+  }
+
+  /**
+   * @brief 非阻塞式尝试读取一个字符
+   * @return 读取到的字符，如果没有数据则返回 std::nullopt
+   */
+  [[nodiscard]] auto TryGetChar() const -> std::optional<uint8_t> {
+    if (Read32(kRegFR) & kFRRXFE) {
+      return std::nullopt;
+    }
+    return static_cast<uint8_t>(Read32(kRegDR));
+  }
+
+  /**
+   * @brief 检查接收缓冲区是否有数据可读（不消耗数据）
+   * @return true 如果有数据可读
+   */
+  [[nodiscard]] auto HasData() const -> bool {
+    return !(Read32(kRegFR) & kFRRXFE);
+  }
+
+ private:
+  /// @brief 读取 32 位寄存器
+  [[nodiscard]] auto Read32(uint32_t reg) const -> uint32_t {
+    return *reinterpret_cast<volatile uint32_t*>(base_addr_ + reg);
+  }
+
+  /// @brief 写入 32 位寄存器
+  void Write32(uint32_t reg, uint32_t val) const {
+    *reinterpret_cast<volatile uint32_t*>(base_addr_ + reg) = val;
+  }
+
+  /// data register
+  static constexpr uint32_t kRegDR = 0x00;
+  /// receive status or error clear
+  static constexpr uint32_t kRegRSRECR = 0x04;
+  /// flag register
+  static constexpr uint32_t kRegFR = 0x18;
+  /// integer baud register
+  static constexpr uint32_t kRegIBRD = 0x24;
+  /// fractional baud register
+  static constexpr uint32_t kRegFBRD = 0x28;
+  /// line control register
+  static constexpr uint32_t kRegLCRH = 0x2C;
+  /// control register
+  static constexpr uint32_t kRegCR = 0x30;
+  /// interrupt mask set/clear
+  static constexpr uint32_t kRegIMSC = 0x38;
+
+  /// flag register bits
+  static constexpr uint32_t kFRTxFIFO = (1 << 5);
+  static constexpr uint32_t kFRRXFE = (1 << 4);
+
+  /// line control register bits
+  static constexpr uint32_t kLCRHWlen8 = (3 << 5);
+
+  /// control register bits
+  static constexpr uint32_t kCREnable = (1 << 0);
+  static constexpr uint32_t kCRTxEnable = (1 << 8);
+  static constexpr uint32_t kCRRxEnable = (1 << 9);
+
+  /// interrupt mask bits
+  static constexpr uint32_t kIMSCRxim = (1 << 4);
+
+  uint64_t base_addr_ = 0;
+  uint64_t base_clock_ = 0;
+  uint64_t baud_rate_ = 0;
+};
+
+}  // namespace device_framework::pl011
+
+#endif /* DEVICE_FRAMEWORK_DRIVER_PL011_PL011_HPP_ */

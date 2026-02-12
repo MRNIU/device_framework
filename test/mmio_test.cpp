@@ -1,16 +1,16 @@
 /**
- * @copyright Copyright The virtio_driver Contributors
+ * @copyright Copyright The device_framework Contributors
  */
 
-#include "virtio_driver/transport/mmio.hpp"
+#include "device_framework/driver/virtio/transport/mmio.hpp"
 
 #include <cstdarg>
 #include <cstdint>
 
+#include "device_framework/driver/virtio/device/device_initializer.hpp"
+#include "device_framework/driver/virtio/traits.hpp"
 #include "test.h"
 #include "uart.h"
-#include "virtio_driver/device/device_initializer.hpp"
-#include "virtio_driver/traits.hpp"
 
 void operator delete(void*, size_t) noexcept {}
 
@@ -62,13 +62,13 @@ void test_virtio_mmio_device_status() {
 
     auto magic = *reinterpret_cast<volatile uint32_t*>(base + 0x000);
 
-    if (magic != virtio_driver::kMmioMagicValue) {
+    if (magic != device_framework::virtio::kMmioMagicValue) {
       LOG("  No device found (invalid magic)");
       continue;
     }
 
     auto device_id = *reinterpret_cast<volatile uint32_t*>(
-        base + virtio_driver::MmioTransport<>::MmioReg::kDeviceId);
+        base + device_framework::virtio::MmioTransport<>::MmioReg::kDeviceId);
     if (device_id == 0) {
       LOG("  Empty VirtIO MMIO slot (Device ID = 0)");
       continue;
@@ -77,7 +77,7 @@ void test_virtio_mmio_device_status() {
     LOG("  Found valid VirtIO device!");
     devices_found++;
 
-    virtio_driver::MmioTransport<RiscvTraits> transport(base);
+    device_framework::virtio::MmioTransport<RiscvTraits> transport(base);
 
     // 测试 0: 验证传输层初始化成功
     {
@@ -93,7 +93,7 @@ void test_virtio_mmio_device_status() {
     {
       auto magic_value = *reinterpret_cast<volatile uint32_t*>(
           base + transport.MmioReg::kMagicValue);
-      EXPECT_EQ(virtio_driver::kMmioMagicValue, magic_value,
+      EXPECT_EQ(device_framework::virtio::kMmioMagicValue, magic_value,
                 "Magic value should be 0x74726976");
     }
 
@@ -101,7 +101,7 @@ void test_virtio_mmio_device_status() {
     {
       auto version = *reinterpret_cast<volatile uint32_t*>(
           base + transport.MmioReg::kVersion);
-      EXPECT_EQ(virtio_driver::kMmioVersionModern, version,
+      EXPECT_EQ(device_framework::virtio::kMmioVersionModern, version,
                 "Version should be 2 (modern)");
       LOG_HEX("  Version", version);
     }
