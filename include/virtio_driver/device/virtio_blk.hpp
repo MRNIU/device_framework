@@ -1,8 +1,5 @@
 /**
- * @file virtio_blk.hpp
- * @brief Virtio 块设备驱动
  * @copyright Copyright The virtio_driver Contributors
- * @see virtio-v1.2#5.2 Block Device
  */
 
 #ifndef VIRTIO_DRIVER_DEVICE_VIRTIO_BLK_HPP_

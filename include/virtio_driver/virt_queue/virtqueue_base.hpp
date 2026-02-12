@@ -1,15 +1,5 @@
 /**
- * @file virtqueue_base.hpp
- * @brief Virtqueue 基类（C++23 Deducing this 编译期多态，零虚表开销）
- *
- * 为 SplitVirtqueue 和未来的 PackedVirtqueue 提供统一的编译期多态基类。
- * 利用 C++23 Deducing this（显式对象参数，P0847）实现通用逻辑的
- * 编译期静态分发，与 Transport 层的设计保持一致。
- *
  * @copyright Copyright The virtio_driver Contributors
- * @see virtio-v1.2#2.6 Split Virtqueues
- * @see virtio-v1.2#2.8 Packed Virtqueues
- * @see 架构文档 §1.2 Virtqueue 层
  */
 
 #ifndef VIRTIO_DRIVER_VIRT_QUEUE_VIRTQUEUE_BASE_HPP_

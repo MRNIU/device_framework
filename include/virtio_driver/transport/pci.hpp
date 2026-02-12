@@ -1,8 +1,5 @@
 /**
- * @file pci.hpp
- * @brief Virtio PCI 传输层（占位，暂不实现）
  * @copyright Copyright The virtio_driver Contributors
- * @see virtio-v1.2#4.1
  */
 
 #ifndef VIRTIO_DRIVER_TRANSPORT_PCI_HPP_

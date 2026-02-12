@@ -1,13 +1,5 @@
 /**
- * @file traits.hpp
- * @brief 平台环境特征约束 (VirtioEnvironmentTraits concept)
- *
- * 统一平台抽象层：用 C++23 concept 替代原有的 PlatformOps 函数指针 +
- * LogFunc 模板参数的二元设计。所有核心类通过单一 Traits 模板参数获取
- * 日志、内存屏障、地址转换能力。
- *
  * @copyright Copyright The virtio_driver Contributors
- * @see 架构文档 §2.1
  */
 
 #ifndef VIRTIO_DRIVER_TRAITS_HPP_
