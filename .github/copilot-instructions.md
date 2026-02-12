@@ -2,7 +2,11 @@
 
 ## 项目概述
 
-一个 **header-only、跨平台** 的 VirtIO 设备驱动库，面向裸机/OS 内核等 freestanding 环境。实现了 VirtIO 1.2 规范中的传输层（MMIO）、Split Virtqueue 和块设备驱动。库本身不依赖任何特定架构，通过 `PlatformOps` 函数指针抽象平台差异。当前使用 RISC-V 64 位 + QEMU `virt` 机器作为测试环境。项目处于活跃开发阶段，Console/GPU/Net/Input 设备和 PCI 传输层尚为占位文件。
+一个 **header-only、跨平台** 的 VirtIO 设备驱动库，面向裸机/OS 内核等 freestanding 环境。实现了 VirtIO 1.2 规范中的传输层（MMIO）、Split Virtqueue（Scatter-Gather、Event Index）和块设备驱动（同步/异步 IO）。
+
+采用 C++23 现代特性（Deducing `this`、Concepts）实现零开销抽象——无虚表、无动态分配。通过 `VirtioEnvironmentTraits` concept 统一平台抽象（日志、内存屏障、地址转换），所有核心类使用单一 `Traits` 模板参数。
+
+当前使用 RISC-V 64 位 + QEMU `virt` 机器作为测试环境。项目处于活跃开发阶段，Console/GPU/Net/Input 设备和 PCI 传输层尚为占位文件。
 
 ## 技术栈
 
@@ -10,6 +14,7 @@
 |------|---------|
 | 语言标准 | C23 / C++23（`-std=c++2b`，`-ffreestanding`） |
 | 构建系统 | CMake 3.27+，使用 CMakePresets（preset 名: `build`） |
+| 编译器要求 | GCC 14+ / Clang 18+（需要 Deducing `this` / P0847 支持） |
 | 测试编译器 | `riscv64-linux-gnu-gcc` / `g++` 交叉工具链（仅测试用） |
 | 测试模拟器 | `qemu-system-riscv64`（virt 机器，128M 内存，仅测试用） |
 | 代码风格 | Google Style（`.clang-format` / `.clang-tidy`） |
@@ -19,21 +24,22 @@
 ## 项目结构
 
 ```
-include/                        # 公共头文件（header-only 库）
-├── defs.h                      # DeviceId、ReservedFeature 枚举、Logger 模板
+include/virtio_driver/         # 公共头文件（header-only 库）
+├── defs.h                      # DeviceId、ReservedFeature 枚举
 ├── expected.hpp                # ErrorCode、Error、Expected<T> (std::expected 别名)
-├── platform.h                  # PlatformOps 结构（内存分配/屏障/地址转换的函数指针）
+├── traits.hpp                  # VirtioEnvironmentTraits concept、NullTraits
 ├── transport/
-│   ├── transport.hpp           # Transport<LogFunc> 抽象基类（纯虚接口）
-│   ├── mmio.hpp                # MmioTransport<LogFunc>（Modern v2 only）
-│   └── pci.hpp                 # PciTransport（占位，@todo）
+│   ├── transport.hpp           # Transport<Traits> 基类（Deducing this，零虚表）
+│   ├── mmio.hpp                # MmioTransport<Traits>（Modern v2 only）
+│   └── pci.hpp                 # PciTransport<Traits>（占位，@todo）
 ├── device/
-│   ├── device_initializer.hpp  # DeviceInitializer<LogFunc>（标准初始化序列编排）
-│   ├── virtio_blk.hpp          # VirtioBlk<LogFunc>（块设备驱动，读/写/刷新）
+│   ├── device_initializer.hpp  # DeviceInitializer<Traits, TransportImpl>
+│   ├── virtio_blk.hpp          # VirtioBlk<Traits, TransportT, VirtqueueT>
 │   └── virtio_console.h / virtio_gpu.h / virtio_net.h / virtio_input.h  # 占位
 └── virt_queue/
-    ├── misc.hpp                # AlignUp()、IsPowerOfTwo() 工具函数
-    └── split.hpp               # SplitVirtqueue（描述符管理/提交/回收）
+    ├── misc.hpp                # AlignUp()、IsPowerOfTwo()、IoVec
+    ├── virtqueue_base.hpp      # VirtqueueBase<Traits>（Deducing this 基类）
+    └── split.hpp               # SplitVirtqueue<Traits>（描述符管理/SG 链/回收）
 
 test/                           # 裸机 QEMU 测试环境
 ├── boot.S                      # 启动汇编（S-mode，设置栈/中断/跳转 _start）
@@ -73,28 +79,75 @@ make test_debug
 
 ## 核心架构模式
 
-### 模板化 LogFunc 参数
-所有核心类使用 `template <class LogFunc = std::nullptr_t>` 参数实现可选日志。实现自定义 Logger 时需定义 `operator()(const char* format, ...) const -> int`。
+### 平台抽象：VirtioEnvironmentTraits concept
+
+所有核心类使用 `template <VirtioEnvironmentTraits Traits = NullTraits>` 参数统一注入平台能力。`Traits` 是一个满足 `VirtioEnvironmentTraits` concept 的静态类，提供：
+
+| 方法 | 用途 |
+|------|------|
+| `Traits::Log(fmt, ...)` | 日志输出 |
+| `Traits::Mb()` / `Rmb()` / `Wmb()` | 内存屏障 |
+| `Traits::VirtToPhys(ptr)` | 虚拟地址 → 物理地址 |
+| `Traits::PhysToVirt(phys)` | 物理地址 → 虚拟地址 |
+
+`NullTraits` 为默认实现（日志和屏障为空操作，地址恒等映射），编译期零开销。
+
+### 编译期多态：Deducing `this`
+
+Transport 层和 Virtqueue 层使用 C++23 Deducing `this`（显式对象参数，P0847）实现编译期多态，**无虚表**，无 CRTP `static_cast`。基类方法通过 `this auto&&` 在编译期静态分发到子类实现。
+
+```cpp
+// Transport 基类示例
+auto Reset(this auto&& self) -> void { self.SetStatus(kReset); }
+
+// VirtqueueBase 基类示例
+auto SubmitChainWithBarrier(this auto&& self, ...) -> Expected<uint16_t> { ... }
+```
 
 ### 设备初始化流程（必须遵循）
+
 ```
 Transport 构造 → DeviceInitializer::Init(features) → SetupQueue() → Activate()
 ```
+
 对应 virtio-v1.2§3.1.1 的步骤 1-8。参照 `virtio_blk_test.cpp` 以及 `VirtioBlk::Create()` 中的实现。
 
+### 异步 IO 模型
+
+设备层分离请求入队与硬件通知，支持批量提交：
+
+```
+EnqueueRead/EnqueueWrite → Kick（含 Event Index 抑制） → HandleInterrupt（回调）
+```
+
+同步 `Read()`/`Write()` 基于异步接口实现。`Kick()` 内含 `VIRTIO_F_EVENT_IDX` 通知抑制逻辑。
+
+### Scatter-Gather IO
+
+Virtqueue 层原生支持 `IoVec`（物理地址 + 长度）描述符链自动组装：
+
+```cpp
+auto SubmitChain(const IoVec* readable, size_t r_count,
+                 const IoVec* writable, size_t w_count) -> Expected<uint16_t>;
+```
+
 ### 错误处理
+
 使用 `Expected<T>` = `std::expected<T, Error>`，错误码定义在 `expected.hpp` 的 `ErrorCode` 枚举中。
 
-### 平台抽象
-用户必须实现 `PlatformOps` 结构中的函数指针（`virt_to_phys`）。测试环境使用恒等映射 + RISC-V fence 指令。
+### 性能统计
+
+`VirtioStats` 结构记录传输字节数、省略的 Kick 次数、中断次数、队列满错误次数。通过 `GetStats()` 获取。
 
 ## 编码规范
 
 ### 编译约束（最重要）
 - **禁止动态内存分配**：不可使用 `new` / `delete` / `malloc` / `free` / STL 容器
 - **禁用标准库**：编译选项 `-nostdlib -fno-builtin -fno-rtti -fno-exceptions`
-- **Freestanding 环境**：仅可使用 freestanding 头文件（`<cstdint>` `<cstddef>` `<type_traits>` `<expected>` `<array>` 等），参考 https://en.cppreference.com/w/cpp/freestanding.html
+- **Freestanding 环境**：仅可使用 freestanding 头文件（`<cstdint>` `<cstddef>` `<concepts>` `<expected>` `<array>` 等），参考 https://en.cppreference.com/w/cpp/freestanding.html
 - **所有结构体需 `__attribute__((packed))`**（与硬件/DMA 共享的结构）
+- **无虚函数**：Transport/Virtqueue 层使用 Deducing `this` 实现编译期多态
+- **驱动层不持有锁/原子**：同步责任由调用方承担
 
 ### 代码风格
 - **格式化**：Google Style，由 `.clang-format` 强制执行
@@ -122,6 +175,12 @@ Transport 构造 → DeviceInitializer::Init(features) → SetupQueue() → Acti
 - 使用 trailing return type：`[[nodiscard]] auto Foo() -> RetType`
 - 可失败操作返回 `Expected<T>`
 
+### 模板参数风格
+- 所有核心类使用 `template <VirtioEnvironmentTraits Traits = NullTraits>` 作为第一个模板参数
+- 设备类可额外接受 `template <class> class TransportT` 和 `template <class> class VirtqueueT` 模板模板参数
+- 日志通过 `Traits::Log(...)` 调用，内存屏障通过 `Traits::Mb/Rmb/Wmb()` 调用
+- 地址转换通过 `Traits::VirtToPhys()` / `Traits::PhysToVirt()` 调用
+
 ### Git Commit 规范
 ```
 <type>(<scope>): <subject>
@@ -133,21 +192,23 @@ subject: ≤50 字符，不加句号
 
 ## 添加新设备驱动的步骤
 
-1. 在 `include/device/` 中创建 `virtio_<name>.hpp`
+1. 在 `include/virtio_driver/device/` 中创建 `virtio_<name>.hpp`
 2. 参照 `virtio_blk.hpp` 的模式：定义特性枚举、配置结构、请求结构
-3. 创建 `class Virtio<Name><LogFunc>` 模板类，持有 `Transport<LogFunc>&`、`SplitVirtqueue&`、`PlatformOps&`
-4. 提供 `static Create()` 工厂方法（内部使用 `DeviceInitializer`）
-5. 在 `test/` 中创建 `virtio_<name>_test.cpp`，注册到 `test/CMakeLists.txt` 的 `ADD_EXECUTABLE` 列表
-6. 在 `test/main.cpp` 中调用测试函数
-7. 在 `test/test.h` 中声明测试函数原型
+3. 创建 `template <VirtioEnvironmentTraits Traits = NullTraits, template<class> class TransportT = MmioTransport, template<class> class VirtqueueT = SplitVirtqueue> class Virtio<Name>` 模板类
+4. 提供 `static Create()` 工厂方法（内部使用 `DeviceInitializer<Traits, TransportT<Traits>>`）
+5. 实现异步接口（`EnqueueXxx`/`Kick`/`HandleInterrupt`）和同步便捷方法
+6. 在 `test/` 中创建 `virtio_<name>_test.cpp`，注册到 `test/CMakeLists.txt` 的 `ADD_EXECUTABLE` 列表
+7. 在 `test/main.cpp` 中调用测试函数
+8. 在 `test/test.h` 中声明测试函数原型
 
 ## 添加测试的步骤
 
 1. 创建 `test/<name>_test.cpp`
-2. 使用 `test/test.h` 中的宏：`EXPECT_TRUE(cond, msg)`、`EXPECT_EQ(expected, actual, msg)`、`EXPECT_NE`、`LOG`、`LOG_HEX`
-3. 在函数开头调用 `test_framework_init()`，结尾调用 `test_framework_print_summary()`
-4. 将源文件加入 `test/CMakeLists.txt` 的 `ADD_EXECUTABLE` 列表
-5. 在 `test/test.h` 中前向声明，在 `test/main.cpp` 中调用
+2. 定义 `RiscvTraits` 结构（参照 `mmio_test.cpp` 或 `virtio_blk_test.cpp` 中的实现）
+3. 使用 `test/test.h` 中的宏：`EXPECT_TRUE(cond, msg)`、`EXPECT_EQ(expected, actual, msg)`、`EXPECT_NE`、`LOG`、`LOG_HEX`
+4. 在函数开头调用 `test_framework_init()`，结尾调用 `test_framework_print_summary()`
+5. 将源文件加入 `test/CMakeLists.txt` 的 `ADD_EXECUTABLE` 列表
+6. 在 `test/test.h` 中前向声明，在 `test/main.cpp` 中调用
 
 ## QEMU 测试环境要点
 
@@ -166,3 +227,5 @@ subject: ≤50 字符，不加句号
 - 裸机无 `printf`，调试输出使用 `uart_puts()` / `uart_put_hex()`
 - `make test_run` 会阻塞终端（QEMU 前台运行），用 `timeout 5 make test_run || true` 做 CI 自动化测试
 - 链接时必须使用 `-mno-relax` 禁用 RISC-V linker relaxation
+- Deducing `this` 需要 GCC 14+ / Clang 18+，确认交叉编译工具链版本
+- DMA 内存的 Non-cacheable 映射或 cache 刷新策略由平台层（调用方）负责
