@@ -24,7 +24,12 @@ include/device_framework/
 │   ├── device_ops_base.hpp
 │   ├── char_device.hpp
 │   └── block_device.hpp
-└── driver/
+├── ns16550a.hpp          # ★ NS16550A 公开入口
+├── pl011.hpp             # ★ PL011 公开入口
+├── virtio_blk.hpp        # ★ VirtIO 块设备公开入口
+├── acpi.hpp              # ★ ACPI 公开入口
+└── detail/               # 实现细节（用户不应直接包含）
+    ├── uart_device.hpp   # UartDevice CRTP 中间层
     ├── virtio/           # VirtIO 族
     │   ├── traits.hpp    # VirtioTraits concept
     │   ├── defs.h
@@ -159,18 +164,22 @@ auto Read(std::span<uint8_t> buf) -> Expected<size_t>;
    - 需要 DMA → `EnvironmentTraits && DmaTraits`
    - 需要屏障 → 追加 `BarrierTraits`
 
-2. **创建驱动目录**：`include/device_framework/driver/<name>/`
+2. **创建驱动目录**：`include/device_framework/detail/<name>/`
 
-3. **实现底层驱动**：`<name>.hpp`
+3. **实现底层驱动**：`detail/<name>/<name>.hpp`
    - 直接与硬件交互（volatile MMIO）
    - 放入 `device_framework::<name>` 命名空间
 
-4. **实现 Device 适配器**：`<name>_device.hpp`
+4. **实现 Device 适配器**：`detail/<name>/<name>_device.hpp`
    - 继承 `CharDevice` 或 `BlockDevice`
    - 覆写 `DoOpen`、`DoCharRead`/`DoCharWrite` 或 `DoReadBlocks`/`DoWriteBlocks` 等
    - 声明 CRTP 基类为 friend
 
-5. **更新文档**：README.md 目录结构和特性列表
+5. **创建公开入口头文件**：`include/device_framework/<name>.hpp`
+   - 仅 `#include "device_framework/detail/<name>/<name>_device.hpp"`
+   - 用户只通过此文件访问驱动
+
+6. **更新文档**：README.md 目录结构和特性列表
 
 ## 构建与测试
 
@@ -192,5 +201,5 @@ cmake --build build --target test_debug
 
 1. **`VirtioEnvironmentTraits` 找不到？** → 已重命名为 `VirtioTraits`，位于 `device_framework::virtio`
 2. **`virtio_driver::` 命名空间？** → 已迁移至 `device_framework::virtio::`
-3. **include 路径？** → `virtio_driver/xxx` → `device_framework/driver/virtio/xxx`
+3. **include 路径？** → 用户应使用顶层公开头文件（`device_framework/ns16550a.hpp` 等），实现细节在 `device_framework/detail/`
 4. **NullTraits 位置？** → `device_framework::NullTraits`（框架级），VirtIO 可用 `NullVirtioTraits`（别名）

@@ -2,8 +2,8 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DRIVER_VIRTIO_VIRT_QUEUE_MISC_HPP_
-#define DEVICE_FRAMEWORK_DRIVER_VIRTIO_VIRT_QUEUE_MISC_HPP_
+#ifndef DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_MISC_HPP_
+#define DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_MISC_HPP_
 
 #include <cstddef>
 #include <cstdint>
@@ -50,4 +50,4 @@ struct IoVec {
 
 }  // namespace device_framework::virtio
 
-#endif /* DEVICE_FRAMEWORK_DRIVER_VIRTIO_VIRT_QUEUE_MISC_HPP_ */
+#endif /* DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_MISC_HPP_ */

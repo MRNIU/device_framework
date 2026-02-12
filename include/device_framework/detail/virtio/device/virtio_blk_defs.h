@@ -2,8 +2,8 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DRIVER_VIRTIO_DEVICE_VIRTIO_BLK_DEFS_H_
-#define DEVICE_FRAMEWORK_DRIVER_VIRTIO_DEVICE_VIRTIO_BLK_DEFS_H_
+#ifndef DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEFS_H_
+#define DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEFS_H_
 
 #include <cstddef>
 #include <cstdint>
@@ -295,4 +295,4 @@ struct VirtioStats {
 
 }  // namespace device_framework::virtio::blk
 
-#endif /* DEVICE_FRAMEWORK_DRIVER_VIRTIO_DEVICE_VIRTIO_BLK_DEFS_H_ */
+#endif /* DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEFS_H_ */

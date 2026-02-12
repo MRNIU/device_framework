@@ -2,8 +2,8 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DRIVER_VIRTIO_TRAITS_HPP_
-#define DEVICE_FRAMEWORK_DRIVER_VIRTIO_TRAITS_HPP_
+#ifndef DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRAITS_HPP_
+#define DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRAITS_HPP_
 
 #include "device_framework/traits.hpp"
 
@@ -30,4 +30,4 @@ using NullVirtioTraits = device_framework::NullTraits;
 
 }  // namespace device_framework::virtio
 
-#endif /* DEVICE_FRAMEWORK_DRIVER_VIRTIO_TRAITS_HPP_ */
+#endif /* DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRAITS_HPP_ */

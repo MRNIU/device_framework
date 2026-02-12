@@ -2,8 +2,8 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DRIVER_PL011_PL011_HPP_
-#define DEVICE_FRAMEWORK_DRIVER_PL011_PL011_HPP_
+#ifndef DEVICE_FRAMEWORK_DETAIL_PL011_PL011_HPP_
+#define DEVICE_FRAMEWORK_DETAIL_PL011_PL011_HPP_
 
 #include <cstdint>
 #include <optional>
@@ -148,4 +148,4 @@ class Pl011 {
 
 }  // namespace device_framework::pl011
 
-#endif /* DEVICE_FRAMEWORK_DRIVER_PL011_PL011_HPP_ */
+#endif /* DEVICE_FRAMEWORK_DETAIL_PL011_PL011_HPP_ */

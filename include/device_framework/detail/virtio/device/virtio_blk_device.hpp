@@ -2,14 +2,14 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DRIVER_VIRTIO_DEVICE_VIRTIO_BLK_DEVICE_HPP_
-#define DEVICE_FRAMEWORK_DRIVER_VIRTIO_DEVICE_VIRTIO_BLK_DEVICE_HPP_
+#ifndef DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEVICE_HPP_
+#define DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEVICE_HPP_
 
 #include <cstdint>
 #include <span>
 #include <utility>
 
-#include "device_framework/driver/virtio/device/virtio_blk.hpp"
+#include "device_framework/detail/virtio/device/virtio_blk.hpp"
 #include "device_framework/expected.hpp"
 #include "device_framework/ops/block_device.hpp"
 
@@ -19,7 +19,8 @@ namespace device_framework::virtio::blk {
  * @brief VirtIO 块设备统一接口适配器
  *
  * 将底层 VirtioBlk 驱动适配到统一的 BlockDevice 接口。
- * 用户可通过 Open/Read/Write/Release、ReadBlock/WriteBlock/ReadBlocks/WriteBlocks
+ * 用户可通过
+ * Open/Read/Write/Release、ReadBlock/WriteBlock/ReadBlocks/WriteBlocks
  * 等标准接口操作 VirtIO 块设备，与 NS16550A 等其他驱动获得一致的使用体验。
  *
  * 使用示例：
@@ -127,8 +128,7 @@ class VirtioBlkDevice
     }
 
     for (size_t i = 0; i < block_count; ++i) {
-      auto result =
-          driver_.Read(block_no + i, buffer.data() + i * kSectorSize);
+      auto result = driver_.Read(block_no + i, buffer.data() + i * kSectorSize);
       if (!result) {
         if (i > 0) {
           return i;
@@ -156,8 +156,7 @@ class VirtioBlkDevice
     }
 
     for (size_t i = 0; i < block_count; ++i) {
-      auto result =
-          driver_.Write(block_no + i, data.data() + i * kSectorSize);
+      auto result = driver_.Write(block_no + i, data.data() + i * kSectorSize);
       if (!result) {
         if (i > 0) {
           return i;
@@ -197,4 +196,4 @@ class VirtioBlkDevice
 
 }  // namespace device_framework::virtio::blk
 
-#endif /* DEVICE_FRAMEWORK_DRIVER_VIRTIO_DEVICE_VIRTIO_BLK_DEVICE_HPP_ */
+#endif /* DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEVICE_HPP_ */

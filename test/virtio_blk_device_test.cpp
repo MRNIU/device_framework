@@ -4,15 +4,15 @@
  * @copyright Copyright The device_framework Contributors
  *
  * 测试 VirtIO 块设备通过统一 BlockDevice 接口的操作：
- * Open/ReadBlock/WriteBlock/ReadBlocks/WriteBlocks/Read/Write/Release 及错误路径
+ * Open/ReadBlock/WriteBlock/ReadBlocks/WriteBlocks/Read/Write/Release
+ * 及错误路径
  */
-
-#include "device_framework/driver/virtio/device/virtio_blk_device.hpp"
 
 #include <cstdarg>
 #include <cstdint>
 
-#include "device_framework/driver/virtio/traits.hpp"
+#include "device_framework/detail/virtio/traits.hpp"
+#include "device_framework/virtio_blk.hpp"
 #include "test.h"
 #include "uart.h"
 
@@ -147,11 +147,10 @@ void test_virtio_blk_device() {
     EXPECT_FALSE(second_open.has_value(),
                  "Second OpenReadWrite() fails (already open)");
     if (!second_open.has_value()) {
-      EXPECT_EQ(
-          static_cast<uint32_t>(
-              device_framework::ErrorCode::kDeviceAlreadyOpen),
-          static_cast<uint32_t>(second_open.error().code),
-          "Error code is kDeviceAlreadyOpen");
+      EXPECT_EQ(static_cast<uint32_t>(
+                    device_framework::ErrorCode::kDeviceAlreadyOpen),
+                static_cast<uint32_t>(second_open.error().code),
+                "Error code is kDeviceAlreadyOpen");
     }
   }
 
@@ -218,11 +217,10 @@ void test_virtio_blk_device() {
       }
     }
 
-    auto write_result =
-        dev.WriteBlocks(kBaseBlock,
-                        std::span<const uint8_t>(g_dev_multi_buf,
-                                                 sizeof(g_dev_multi_buf)),
-                        kNumBlocks);
+    auto write_result = dev.WriteBlocks(
+        kBaseBlock,
+        std::span<const uint8_t>(g_dev_multi_buf, sizeof(g_dev_multi_buf)),
+        kNumBlocks);
     EXPECT_TRUE(write_result.has_value(), "WriteBlocks(4 blocks) succeeds");
     if (write_result.has_value()) {
       EXPECT_EQ(static_cast<uint64_t>(kNumBlocks),
@@ -309,14 +307,12 @@ void test_virtio_blk_device() {
     auto read_result =
         dev.Read(std::span<uint8_t>(g_dev_data_buf, sizeof(g_dev_data_buf)),
                  100);  // 非 512 对齐
-    EXPECT_FALSE(read_result.has_value(),
-                 "Read(offset=100 non-aligned) fails");
+    EXPECT_FALSE(read_result.has_value(), "Read(offset=100 non-aligned) fails");
     if (!read_result.has_value()) {
-      EXPECT_EQ(
-          static_cast<uint32_t>(
-              device_framework::ErrorCode::kDeviceBlockUnaligned),
-          static_cast<uint32_t>(read_result.error().code),
-          "Error code is kDeviceBlockUnaligned");
+      EXPECT_EQ(static_cast<uint32_t>(
+                    device_framework::ErrorCode::kDeviceBlockUnaligned),
+                static_cast<uint32_t>(read_result.error().code),
+                "Error code is kDeviceBlockUnaligned");
     }
   }
 

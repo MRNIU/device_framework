@@ -23,13 +23,24 @@ include/device_framework/
 ├── expected.hpp                         # ErrorCode、Expected<T>
 ├── traits.hpp                           # EnvironmentTraits, BarrierTraits, DmaTraits, NullTraits
 │
-├── ops/                                 # 设备操作抽象层
+├── ops/                                 # 设备操作抽象层（公开）
 │   ├── device_ops_base.hpp              # DeviceOperationsBase<Derived>
 │   ├── char_device.hpp                  # CharDevice<Derived>
 │   └── block_device.hpp                 # BlockDevice<Derived>
 │
-└── driver/
+├── ns16550a.hpp                         # ★ NS16550A 公开入口
+├── pl011.hpp                            # ★ PL011 公开入口
+├── virtio_blk.hpp                       # ★ VirtIO 块设备公开入口
+├── acpi.hpp                             # ★ ACPI 公开入口
+│
+└── detail/                              # 实现细节（用户不应直接包含）
     ├── uart_device.hpp                  # UartDevice<Derived, DriverType> 通用 UART 适配层
+    ├── ns16550a/                        # NS16550A UART
+    │   ├── ns16550a.hpp                 # 底层驱动
+    │   └── ns16550a_device.hpp          # CharDevice 适配器
+    ├── pl011/                           # PL011 UART
+    │   ├── pl011.hpp                    # 底层驱动
+    │   └── pl011_device.hpp             # CharDevice 适配器
     ├── virtio/                          # VirtIO 驱动族
     │   ├── traits.hpp                   # VirtioTraits = Env + Barrier + DMA
     │   ├── defs.h                       # DeviceId, ReservedFeature
@@ -37,13 +48,8 @@ include/device_framework/
     │   ├── virt_queue/                  # 虚拟队列 (Split)
     │   └── device/                      # 设备实现
     │       ├── virtio_blk_defs.h        # 块设备数据结构定义
-    │       └── virtio_blk.hpp           # 块设备驱动
-    ├── ns16550a/                        # NS16550A UART
-    │   ├── ns16550a.hpp                 # 底层驱动
-    │   └── ns16550a_device.hpp          # CharDevice 适配器
-    ├── pl011/                           # PL011 UART
-    │   ├── pl011.hpp                    # 底层驱动
-    │   └── pl011_device.hpp             # CharDevice 适配器
+    │       ├── virtio_blk.hpp           # 块设备驱动
+    │       └── virtio_blk_device.hpp    # BlockDevice 适配器
     └── acpi/                            # ACPI 表解析
         └── acpi.hpp
 
@@ -105,7 +111,7 @@ target_link_libraries(your_target PRIVATE device_framework)
 ### 使用 NS16550A 字符设备
 
 ```cpp
-#include "device_framework/driver/ns16550a/ns16550a_device.hpp"
+#include "device_framework/ns16550a.hpp"
 
 device_framework::ns16550a::Ns16550aDevice uart(0x10000000);
 uart.OpenReadWrite();
@@ -117,7 +123,7 @@ uart.Release();
 ### 使用 VirtIO 块设备
 
 ```cpp
-#include "device_framework/driver/virtio/device/virtio_blk.hpp"
+#include "device_framework/virtio_blk.hpp"
 
 using BlkDev = device_framework::virtio::blk::VirtioBlk<MyTraits>;
 auto blk = BlkDev::Init(mmio_base, ...);

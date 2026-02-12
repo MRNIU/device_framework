@@ -7,7 +7,7 @@
  * Open/PutChar/Write/Poll/Release 及错误路径
  */
 
-#include "device_framework/driver/ns16550a/ns16550a_device.hpp"
+#include "device_framework/ns16550a.hpp"
 
 #include <cstdint>
 
@@ -59,11 +59,10 @@ void test_ns16550a() {
       EXPECT_FALSE(second.has_value(),
                    "Second OpenReadWrite() fails (already open)");
       if (!second.has_value()) {
-        EXPECT_EQ(
-            static_cast<uint32_t>(
-                device_framework::ErrorCode::kDeviceAlreadyOpen),
-            static_cast<uint32_t>(second.error().code),
-            "Error code is kDeviceAlreadyOpen");
+        EXPECT_EQ(static_cast<uint32_t>(
+                      device_framework::ErrorCode::kDeviceAlreadyOpen),
+                  static_cast<uint32_t>(second.error().code),
+                  "Error code is kDeviceAlreadyOpen");
       }
       (void)uart.Release();
     }
@@ -152,11 +151,10 @@ void test_ns16550a() {
       EXPECT_FALSE(put_result.has_value(),
                    "PutChar() on read-only device fails");
       if (!put_result.has_value()) {
-        EXPECT_EQ(
-            static_cast<uint32_t>(
-                device_framework::ErrorCode::kDevicePermissionDenied),
-            static_cast<uint32_t>(put_result.error().code),
-            "Error code is kDevicePermissionDenied");
+        EXPECT_EQ(static_cast<uint32_t>(
+                      device_framework::ErrorCode::kDevicePermissionDenied),
+                  static_cast<uint32_t>(put_result.error().code),
+                  "Error code is kDevicePermissionDenied");
       }
 
       (void)uart.Release();
@@ -170,9 +168,8 @@ void test_ns16550a() {
     EXPECT_TRUE(open_result.has_value(), "Open for Poll test");
 
     if (open_result.has_value()) {
-      auto poll_result =
-          uart.Poll(device_framework::PollEvents{
-              device_framework::PollEvents::kOut});
+      auto poll_result = uart.Poll(
+          device_framework::PollEvents{device_framework::PollEvents::kOut});
       EXPECT_TRUE(poll_result.has_value(), "Poll(kOut) succeeds");
       if (poll_result.has_value()) {
         EXPECT_TRUE(poll_result->HasOut(),
@@ -193,8 +190,7 @@ void test_ns16550a() {
     }
 
     auto second_open = uart.OpenReadWrite();
-    EXPECT_TRUE(second_open.has_value(),
-                "Re-open after Release() succeeds");
+    EXPECT_TRUE(second_open.has_value(), "Re-open after Release() succeeds");
     if (second_open.has_value()) {
       (void)uart.Release();
     }

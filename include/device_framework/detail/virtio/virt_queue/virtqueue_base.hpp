@@ -2,13 +2,13 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DRIVER_VIRTIO_VIRT_QUEUE_VIRTQUEUE_BASE_HPP_
-#define DEVICE_FRAMEWORK_DRIVER_VIRTIO_VIRT_QUEUE_VIRTQUEUE_BASE_HPP_
+#ifndef DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_VIRTQUEUE_BASE_HPP_
+#define DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_VIRTQUEUE_BASE_HPP_
 
 #include <cstdint>
 
-#include "device_framework/driver/virtio/traits.hpp"
-#include "device_framework/driver/virtio/virt_queue/misc.hpp"
+#include "device_framework/detail/virtio/traits.hpp"
+#include "device_framework/detail/virtio/virt_queue/misc.hpp"
 #include "device_framework/expected.hpp"
 
 namespace device_framework::virtio {
@@ -118,4 +118,4 @@ class VirtqueueBase {
 
 }  // namespace device_framework::virtio
 
-#endif /* DEVICE_FRAMEWORK_DRIVER_VIRTIO_VIRT_QUEUE_VIRTQUEUE_BASE_HPP_ */
+#endif /* DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_VIRTQUEUE_BASE_HPP_ */

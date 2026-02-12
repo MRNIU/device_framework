@@ -10,12 +10,12 @@
  * 4. 同步写入/读取操作并验证数据一致性
  */
 
-#include "device_framework/driver/virtio/device/virtio_blk.hpp"
+#include "device_framework/detail/virtio/device/virtio_blk.hpp"
 
 #include <cstdarg>
 #include <cstdint>
 
-#include "device_framework/driver/virtio/traits.hpp"
+#include "device_framework/detail/virtio/traits.hpp"
 #include "test.h"
 #include "uart.h"
 

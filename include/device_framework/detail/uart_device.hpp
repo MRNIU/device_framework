@@ -2,8 +2,8 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DRIVER_UART_DEVICE_HPP_
-#define DEVICE_FRAMEWORK_DRIVER_UART_DEVICE_HPP_
+#ifndef DEVICE_FRAMEWORK_DETAIL_UART_DEVICE_HPP_
+#define DEVICE_FRAMEWORK_DETAIL_UART_DEVICE_HPP_
 
 #include <cstdint>
 #include <span>
@@ -101,4 +101,4 @@ class UartDevice : public CharDevice<Derived> {
 
 }  // namespace device_framework
 
-#endif /* DEVICE_FRAMEWORK_DRIVER_UART_DEVICE_HPP_ */
+#endif /* DEVICE_FRAMEWORK_DETAIL_UART_DEVICE_HPP_ */

@@ -2,11 +2,11 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DRIVER_VIRTIO_DEVICE_DEVICE_INITIALIZER_HPP_
-#define DEVICE_FRAMEWORK_DRIVER_VIRTIO_DEVICE_DEVICE_INITIALIZER_HPP_
+#ifndef DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_DEVICE_INITIALIZER_HPP_
+#define DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_DEVICE_INITIALIZER_HPP_
 
-#include "device_framework/driver/virtio/traits.hpp"
-#include "device_framework/driver/virtio/transport/transport.hpp"
+#include "device_framework/detail/virtio/traits.hpp"
+#include "device_framework/detail/virtio/transport/transport.hpp"
 #include "device_framework/expected.hpp"
 
 namespace device_framework::virtio {
@@ -219,4 +219,4 @@ class DeviceInitializer {
 
 }  // namespace device_framework::virtio
 
-#endif /* DEVICE_FRAMEWORK_DRIVER_VIRTIO_DEVICE_DEVICE_INITIALIZER_HPP_ */
+#endif /* DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_DEVICE_INITIALIZER_HPP_ */

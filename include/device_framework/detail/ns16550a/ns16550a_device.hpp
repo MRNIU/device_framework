@@ -2,13 +2,13 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DRIVER_NS16550A_NS16550A_DEVICE_HPP_
-#define DEVICE_FRAMEWORK_DRIVER_NS16550A_NS16550A_DEVICE_HPP_
+#ifndef DEVICE_FRAMEWORK_DETAIL_NS16550A_NS16550A_DEVICE_HPP_
+#define DEVICE_FRAMEWORK_DETAIL_NS16550A_NS16550A_DEVICE_HPP_
 
 #include <cstdint>
 
-#include "device_framework/driver/ns16550a/ns16550a.hpp"
-#include "device_framework/driver/uart_device.hpp"
+#include "device_framework/detail/ns16550a/ns16550a.hpp"
+#include "device_framework/detail/uart_device.hpp"
 
 namespace device_framework::ns16550a {
 
@@ -26,4 +26,4 @@ class Ns16550aDevice : public UartDevice<Ns16550aDevice, Ns16550a> {
 
 }  // namespace device_framework::ns16550a
 
-#endif /* DEVICE_FRAMEWORK_DRIVER_NS16550A_NS16550A_DEVICE_HPP_ */
+#endif /* DEVICE_FRAMEWORK_DETAIL_NS16550A_NS16550A_DEVICE_HPP_ */

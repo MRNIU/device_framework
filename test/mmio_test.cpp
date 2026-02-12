@@ -2,13 +2,13 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#include "device_framework/driver/virtio/transport/mmio.hpp"
+#include "device_framework/detail/virtio/transport/mmio.hpp"
 
 #include <cstdarg>
 #include <cstdint>
 
-#include "device_framework/driver/virtio/device/device_initializer.hpp"
-#include "device_framework/driver/virtio/traits.hpp"
+#include "device_framework/detail/virtio/device/device_initializer.hpp"
+#include "device_framework/detail/virtio/traits.hpp"
 #include "test.h"
 #include "uart.h"
 

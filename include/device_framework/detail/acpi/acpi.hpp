@@ -2,8 +2,8 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DRIVER_ACPI_ACPI_HPP_
-#define DEVICE_FRAMEWORK_DRIVER_ACPI_ACPI_HPP_
+#ifndef DEVICE_FRAMEWORK_DETAIL_ACPI_ACPI_HPP_
+#define DEVICE_FRAMEWORK_DETAIL_ACPI_ACPI_HPP_
 
 #include <cstdint>
 
@@ -174,4 +174,4 @@ class Acpi {
 
 }  // namespace device_framework::acpi
 
-#endif /* DEVICE_FRAMEWORK_DRIVER_ACPI_ACPI_HPP_ */
+#endif /* DEVICE_FRAMEWORK_DETAIL_ACPI_ACPI_HPP_ */

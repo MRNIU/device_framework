@@ -2,10 +2,10 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DRIVER_VIRTIO_TRANSPORT_PCI_HPP_
-#define DEVICE_FRAMEWORK_DRIVER_VIRTIO_TRANSPORT_PCI_HPP_
+#ifndef DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRANSPORT_PCI_HPP_
+#define DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRANSPORT_PCI_HPP_
 
-#include "device_framework/driver/virtio/transport/transport.hpp"
+#include "device_framework/detail/virtio/transport/transport.hpp"
 
 namespace device_framework::virtio {
 
@@ -60,4 +60,4 @@ class PciTransport final : public Transport<Traits> {
 
 }  // namespace device_framework::virtio
 
-#endif /* DEVICE_FRAMEWORK_DRIVER_VIRTIO_TRANSPORT_PCI_HPP_ */
+#endif /* DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRANSPORT_PCI_HPP_ */
