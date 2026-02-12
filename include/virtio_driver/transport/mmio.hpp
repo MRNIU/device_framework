@@ -123,13 +123,11 @@ class MmioTransport final : public Transport<Traits> {
    */
   explicit MmioTransport(uint64_t base)
       : base_(base), is_valid_(false), device_id_(0), vendor_id_(0) {
-    // 验证基地址有效性
     if (base == 0) {
       Traits::Log("MMIO base address is null");
       return;
     }
 
-    // 验证魔数
     auto magic = Read<uint32_t>(MmioReg::kMagicValue);
     if (magic != kMmioMagicValue) {
       Traits::Log("MMIO magic value mismatch: expected 0x%08x, got 0x%08x",
@@ -137,7 +135,6 @@ class MmioTransport final : public Transport<Traits> {
       return;
     }
 
-    // 验证版本号（仅支持 modern v2）
     auto version = Read<uint32_t>(MmioReg::kVersion);
     if (version != kMmioVersionModern) {
       Traits::Log("MMIO version not supported: expected %u, got %u",
@@ -145,20 +142,14 @@ class MmioTransport final : public Transport<Traits> {
       return;
     }
 
-    // 设备 ID 为 0 表示不存在设备
     device_id_ = Read<uint32_t>(MmioReg::kDeviceId);
     if (device_id_ == 0) {
       Traits::Log("MMIO device ID is 0, no device found");
       return;
     }
 
-    // 缓存 Vendor ID
     vendor_id_ = Read<uint32_t>(MmioReg::kVendorId);
-
-    // 执行设备重置
     this->Reset();
-
-    // 标记初始化成功
     is_valid_ = true;
 
     Traits::Log("MMIO device initialized: DeviceID=0x%08x, VendorID=0x%08x",
@@ -167,10 +158,6 @@ class MmioTransport final : public Transport<Traits> {
 
   /**
    * @brief 检查设备是否成功初始化
-   *
-   * 在使用任何其他方法之前应先检查此状态。
-   *
-   * @return true 表示设备初始化成功，false 表示初始化失败
    */
   [[nodiscard]] auto IsValid() const -> bool { return is_valid_; }
 
@@ -204,20 +191,16 @@ class MmioTransport final : public Transport<Traits> {
   /**
    * @brief 读取 64 位设备特性
    *
-   * 需要分两次 32 位读取（低 32 位和高 32 位）
-   *
-   * @note 该操作需要写入 DeviceFeaturesSel 寄存器来选择读取哪 32 位，
-   *       虽然不改变 C++ 对象状态，但涉及硬件寄存器写入，因此不能声明为 const
+   * 需要分两次 32 位读取（低 32 位和高 32 位）。
+   * 涉及硬件寄存器写入，因此不能声明为 const。
    *
    * @return 设备支持的 64 位特性位
    * @see virtio-v1.2#4.2.2.1
    */
   [[nodiscard]] auto GetDeviceFeatures() -> uint64_t {
-    // 选择特性位 [31:0]
     Write<uint32_t>(MmioReg::kDeviceFeaturesSel, 0);
     uint64_t lo = Read<uint32_t>(MmioReg::kDeviceFeatures);
 
-    // 选择特性位 [63:32]
     Write<uint32_t>(MmioReg::kDeviceFeaturesSel, 1);
     uint64_t hi = Read<uint32_t>(MmioReg::kDeviceFeatures);
 
@@ -226,8 +209,6 @@ class MmioTransport final : public Transport<Traits> {
 
   /**
    * @brief 写入 64 位驱动特性
-   *
-   * 需要分两次 32 位写入（低 32 位和高 32 位）
    *
    * @param features 驱动程序接受的特性位
    * @see virtio-v1.2#4.2.2.1
@@ -244,9 +225,7 @@ class MmioTransport final : public Transport<Traits> {
   /**
    * @brief 获取队列最大容量
    *
-   * 写入 QueueSel 选择队列后读取 QueueNumMax
-   *
-   * @note 该操作需要写入 QueueSel 寄存器，因此不能声明为 const
+   * 涉及硬件寄存器写入，因此不能声明为 const。
    *
    * @param queue_idx 队列索引
    * @return 队列最大大小
@@ -264,8 +243,6 @@ class MmioTransport final : public Transport<Traits> {
 
   /**
    * @brief 设置描述符表物理地址
-   *
-   * MMIO 寄存器为 32 位，需要分高低两次写入
    *
    * @param queue_idx 队列索引
    * @param addr 描述符表的 64 位物理地址
@@ -312,12 +289,7 @@ class MmioTransport final : public Transport<Traits> {
     Write<uint32_t>(MmioReg::kQueueReady, ready ? 1 : 0);
   }
 
-  /**
-   * @brief 通知设备有新的可用缓冲区
-   *
-   * @param queue_idx 队列索引
-   * @see virtio-v1.2#4.2.3.3
-   */
+  /// 通知设备有新的可用缓冲区
   auto NotifyQueue(uint32_t queue_idx) -> void {
     Write<uint32_t>(MmioReg::kQueueNotify, queue_idx);
   }
@@ -334,8 +306,7 @@ class MmioTransport final : public Transport<Traits> {
    * @brief 读取配置空间 8 位值
    *
    * @param offset 相对于配置空间起始的偏移量
-   * @return 8 位配置值
-   * @see virtio-v1.2#4.2.2.2 (Config[] at offset 0x100+)
+   * @see virtio-v1.2#4.2.2.2
    */
   [[nodiscard]] auto ReadConfigU8(uint32_t offset) const -> uint8_t {
     return Read<uint8_t>(MmioReg::kConfig + offset);
@@ -345,7 +316,6 @@ class MmioTransport final : public Transport<Traits> {
    * @brief 读取配置空间 16 位值
    *
    * @param offset 相对于配置空间起始的偏移量
-   * @return 16 位配置值
    */
   [[nodiscard]] auto ReadConfigU16(uint32_t offset) const -> uint16_t {
     return Read<uint16_t>(MmioReg::kConfig + offset);
@@ -355,7 +325,6 @@ class MmioTransport final : public Transport<Traits> {
    * @brief 读取配置空间 32 位值
    *
    * @param offset 相对于配置空间起始的偏移量
-   * @return 32 位配置值
    */
   [[nodiscard]] auto ReadConfigU32(uint32_t offset) const -> uint32_t {
     return Read<uint32_t>(MmioReg::kConfig + offset);
@@ -380,8 +349,6 @@ class MmioTransport final : public Transport<Traits> {
     uint32_t gen2;
     uint64_t value;
 
-    // 循环直到读取到一致的配置（generation counter 相同）
-    // 最多重试 kMaxConfigRetries 次以防止设备持续更新导致无限循环
     static constexpr uint32_t kMaxConfigRetries = 1000;
     uint32_t retries = 0;
     do {
@@ -407,26 +374,13 @@ class MmioTransport final : public Transport<Traits> {
   [[nodiscard]] auto base() const -> uint64_t { return base_; }
 
  private:
-  /**
-   * @brief 从 MMIO 寄存器读取指定类型的值
-   *
-   * @tparam T 要读取的数据类型（uint8_t, uint16_t, uint32_t, uint64_t）
-   * @param offset 寄存器偏移量
-   * @return 读取的值
-   * @note const 指 C++ 对象状态不变，硬件寄存器读取不影响对象状态
-   */
+  /// 从 MMIO 寄存器读取指定类型的值
   template <typename T>
   [[nodiscard]] auto Read(size_t offset) const -> T {
     return *reinterpret_cast<volatile T*>(base_ + offset);
   }
 
-  /**
-   * @brief 向 MMIO 寄存器写入指定类型的值
-   *
-   * @tparam T 要写入的数据类型（uint8_t, uint16_t, uint32_t, uint64_t）
-   * @param offset 寄存器偏移量
-   * @param val 要写入的值
-   */
+  /// 向 MMIO 寄存器写入指定类型的值
   template <typename T>
   auto Write(size_t offset, T val) -> void {
     *reinterpret_cast<volatile T*>(base_ + offset) = val;

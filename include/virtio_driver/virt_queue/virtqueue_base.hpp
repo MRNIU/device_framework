@@ -69,12 +69,11 @@ class VirtqueueBase {
   [[nodiscard]] auto SubmitChainWithBarrier(
       this auto&& self, const IoVec* readable, size_t readable_count,
       const IoVec* writable, size_t writable_count) -> Expected<uint16_t> {
-    // 写屏障：确保调用方填充的数据缓冲区对设备可见
+    // 写屏障：确保调用方填充的数据对设备可见
     Traits::Wmb();
     auto result =
         self.SubmitChain(readable, readable_count, writable, writable_count);
     if (result.has_value()) {
-      // 全屏障：确保 Available Ring 更新对设备可见后再通知
       Traits::Mb();
     }
     return result;

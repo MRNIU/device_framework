@@ -53,18 +53,13 @@ static inline void uart_write_reg(uint32_t reg, uint8_t val) {
 }
 
 void uart_putc(char c) {
-  // 等待发送缓冲区为空
   while ((uart_read_reg(kUartRegLsr) & kUartLsrThre) == 0) {
-    // 忙等待
   }
 
-  // 发送字符
   uart_write_reg(kUartRegThr, static_cast<uint8_t>(c));
 
-  // 如果是换行符，同时发送回车符
   if (c == '\n') {
     while ((uart_read_reg(kUartRegLsr) & kUartLsrThre) == 0) {
-      // 忙等待
     }
     uart_write_reg(kUartRegThr, '\r');
   }
@@ -97,10 +92,7 @@ void uart_put_hex(uint64_t num) {
   uart_puts(buf);
 }
 
-void uart_init() {
-  // 使能接收数据中断
-  uart_write_reg(kUartRegIer, kUartIerRda);
-}
+void uart_init() { uart_write_reg(kUartRegIer, kUartIerRda); }
 
 void uart_put_dec(uint64_t num) {
   if (num == 0) {
@@ -116,7 +108,6 @@ void uart_put_dec(uint64_t num) {
     num /= 10;
   }
 
-  // 反转输出
   for (int i = pos - 1; i >= 0; --i) {
     uart_putc(buf[i]);
   }
@@ -164,7 +155,6 @@ auto uart_vprintf(const char *format, va_list args) -> int {
 
     ++p;  // skip '%'
 
-    // 解析宽度和零填充
     bool zero_pad = false;
     int width = 0;
 
@@ -185,7 +175,6 @@ auto uart_vprintf(const char *format, va_list args) -> int {
       ++p;
     }
 
-    // 支持 'l' 和 'll' 长度修饰符
     int long_count = 0;
     while (*p == 'l') {
       ++long_count;
@@ -285,7 +274,6 @@ auto uart_vprintf(const char *format, va_list args) -> int {
 }
 
 auto uart_getc() -> int {
-  // 检查是否有可用数据
   if ((uart_read_reg(kUartRegLsr) & kUartLsrDr) != 0) {
     return uart_read_reg(kUartRegRbr);
   }
@@ -293,18 +281,12 @@ auto uart_getc() -> int {
 }
 
 void uart_handle_interrupt() {
-  // 读取中断状态寄存器
   uint8_t isr = uart_read_reg(kUartRegIsr);
 
-  // 检查是否是接收数据中断 (ISR bit 0 = 0 表示有中断挂起)
   if ((isr & 0x01) == 0) {
-    // 处理接收数据中断
     int c;
     while ((c = uart_getc()) != -1) {
-      // 回显字符
       uart_putc(static_cast<char>(c));
-
-      // 可以在这里处理特殊字符
       if (c == '\r') {
         uart_putc('\n');
       }

@@ -73,10 +73,6 @@ auto uart_printf(const char *format, ...) -> int;
 auto uart_vprintf(const char *format, va_list args) -> int;
 
 /**
- * @brief 初始化 UART（包含中断配置）
- */
-
-/**
  * @brief 尝试从 UART 读取一个字符
  * @return 读取的字符，如果没有可用字符则返回 -1
  */

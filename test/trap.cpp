@@ -15,12 +15,10 @@
  * @param tval 异常相关的值
  */
 extern "C" void trap_handler(uint64_t cause, uint64_t epc, uint64_t tval) {
-  // 判断是中断还是异常
   bool is_interrupt = (cause & (1ULL << 63)) != 0;
   uint64_t code = cause & 0x7FFFFFFFFFFFFFFF;
 
   if (is_interrupt) {
-    // 处理中断
     uart_puts("\n[INTERRUPT] ");
     switch (code) {
       case 1:  // Supervisor 软件中断
@@ -28,24 +26,20 @@ extern "C" void trap_handler(uint64_t cause, uint64_t epc, uint64_t tval) {
         break;
       case 5:  // Supervisor 定时器中断
         uart_puts("Supervisor Timer Interrupt\n");
-        // 清除定时器中断 (通过 SBI 调用)
         break;
       case 9: {  // Supervisor 外部中断
         uart_puts("Supervisor External Interrupt\n");
-        // 通过 PLIC 处理外部中断
         uint32_t irq = plic_claim();
         if (irq != 0) {
           uart_puts("  IRQ: ");
           uart_put_hex(irq);
           uart_puts("\n");
 
-          // 根据 IRQ 处理不同的设备中断
           if (irq >= kVirtio0Irq && irq <= kVirtio7Irq) {
             uint32_t dev_idx = irq - kVirtio0Irq;
             uart_puts("  Device: VirtIO");
             uart_put_hex(dev_idx);
             uart_puts("\n");
-            // 调用已注册的 VirtIO 设备中断处理函数
             if (g_virtio_irq_handlers[dev_idx] != nullptr) {
               g_virtio_irq_handlers[dev_idx]();
             }
@@ -56,7 +50,6 @@ extern "C" void trap_handler(uint64_t cause, uint64_t epc, uint64_t tval) {
             uart_puts("  Device: Unknown\n");
           }
 
-          // 完成中断处理
           plic_complete(irq);
         }
         break;
@@ -68,12 +61,10 @@ extern "C" void trap_handler(uint64_t cause, uint64_t epc, uint64_t tval) {
         break;
     }
   } else {
-    // 处理异常
     uart_puts("\n[EXCEPTION] Unexpected exception!\n");
     uart_puts("  code: ");
     uart_put_hex(code);
 
-    // 打印异常类型
     uart_puts(" (");
     switch (code) {
       case 0:
@@ -130,7 +121,6 @@ extern "C" void trap_handler(uint64_t cause, uint64_t epc, uint64_t tval) {
     uart_put_hex(tval);
     uart_puts("\n");
 
-    // 对于异常，进入死循环
     uart_puts("\n[FATAL] System halted due to exception.\n");
     while (true) {
       asm volatile("wfi");

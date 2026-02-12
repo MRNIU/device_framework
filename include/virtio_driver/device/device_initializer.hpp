@@ -72,7 +72,6 @@ class DeviceInitializer {
    * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
    */
   [[nodiscard]] auto Init(uint64_t driver_features) -> Expected<uint64_t> {
-    // 检查传输层是否有效
     if (!transport_.IsValid()) {
       Traits::Log("Transport layer not initialized");
       return std::unexpected(Error{ErrorCode::kTransportNotInitialized});
@@ -80,19 +79,14 @@ class DeviceInitializer {
 
     Traits::Log("Starting device initialization sequence");
 
-    // 步骤 1: 重置设备
     transport_.Reset();
 
-    // 步骤 2: 设置 ACKNOWLEDGE 状态位
     transport_.SetStatus(TransportImpl::kAcknowledge);
     Traits::Log("Set ACKNOWLEDGE status");
 
-    // 步骤 3: 设置 DRIVER 状态位
-    transport_.SetStatus(TransportImpl::kAcknowledge |
-                         TransportImpl::kDriver);
+    transport_.SetStatus(TransportImpl::kAcknowledge | TransportImpl::kDriver);
     Traits::Log("Set DRIVER status");
 
-    // 步骤 4: 特性协商
     uint64_t device_features = transport_.GetDeviceFeatures();
     uint64_t negotiated_features = device_features & driver_features;
     Traits::Log(
@@ -104,16 +98,12 @@ class DeviceInitializer {
 
     transport_.SetDriverFeatures(negotiated_features);
 
-    // 步骤 5: 设置 FEATURES_OK 状态位
-    transport_.SetStatus(TransportImpl::kAcknowledge |
-                         TransportImpl::kDriver |
+    transport_.SetStatus(TransportImpl::kAcknowledge | TransportImpl::kDriver |
                          TransportImpl::kFeaturesOk);
     Traits::Log("Set FEATURES_OK status");
 
-    // 步骤 6: 验证 FEATURES_OK
     uint32_t status = transport_.GetStatus();
     if ((status & TransportImpl::kFeaturesOk) == 0) {
-      // 设备拒绝了特性组合
       Traits::Log("Device rejected feature negotiation");
       transport_.SetStatus(status | TransportImpl::kFailed);
       return std::unexpected(Error{ErrorCode::kFeatureNegotiationFailed});
@@ -142,7 +132,6 @@ class DeviceInitializer {
   [[nodiscard]] auto SetupQueue(uint32_t queue_idx, uint64_t desc_phys,
                                 uint64_t avail_phys, uint64_t used_phys,
                                 uint32_t queue_size) -> Expected<void> {
-    // 检查传输层是否有效
     if (!transport_.IsValid()) {
       Traits::Log("Transport layer not initialized");
       return std::unexpected(Error{ErrorCode::kTransportNotInitialized});
@@ -150,7 +139,6 @@ class DeviceInitializer {
 
     Traits::Log("Setting up queue %u (size=%u)", queue_idx, queue_size);
 
-    // 检查队列大小是否有效
     uint32_t max_size = transport_.GetQueueNumMax(queue_idx);
     if (max_size == 0) {
       Traits::Log("Queue %u not available", queue_idx);
@@ -162,13 +150,10 @@ class DeviceInitializer {
       return std::unexpected(Error{ErrorCode::kQueueTooLarge});
     }
 
-    // 配置队列
     transport_.SetQueueNum(queue_idx, queue_size);
     transport_.SetQueueDesc(queue_idx, desc_phys);
     transport_.SetQueueAvail(queue_idx, avail_phys);
     transport_.SetQueueUsed(queue_idx, used_phys);
-
-    // 标记队列就绪
     transport_.SetQueueReady(queue_idx, true);
 
     Traits::Log(
@@ -194,7 +179,6 @@ class DeviceInitializer {
    * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
    */
   [[nodiscard]] auto Activate() -> Expected<void> {
-    // 检查传输层是否有效
     if (!transport_.IsValid()) {
       Traits::Log("Transport layer not initialized");
       return std::unexpected(Error{ErrorCode::kTransportNotInitialized});
@@ -205,7 +189,6 @@ class DeviceInitializer {
     uint32_t current_status = transport_.GetStatus();
     transport_.SetStatus(current_status | TransportImpl::kDriverOk);
 
-    // 验证设备是否正常激活
     uint32_t new_status = transport_.GetStatus();
     if ((new_status & TransportImpl::kDeviceNeedsReset) != 0) {
       Traits::Log("Device activation failed: device needs reset");

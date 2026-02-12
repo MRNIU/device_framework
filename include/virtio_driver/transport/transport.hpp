@@ -74,22 +74,14 @@ class Transport {
 
   /**
    * @brief 重置设备
-   *
-   * 将状态寄存器写 0，使设备回到初始状态。
-   * 重置后所有队列配置和特性协商都将失效。
-   *
    * @see virtio-v1.2#2.1 Device Status Field
-   * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
    */
   auto Reset(this auto&& self) -> void { self.SetStatus(kReset); }
 
   /**
    * @brief 检查设备是否需要重置
    *
-   * 如果设备遇到严重错误，会设置 DEVICE_NEEDS_RESET 状态位。
-   * 驱动程序应该检测到此状态后重新初始化设备。
-   *
-   * @return true 表示设备需要重置，false 表示设备正常
+   * @return true 表示设备需要重置
    * @see virtio-v1.2#2.1 Device Status Field
    */
   [[nodiscard]] auto NeedsReset(this auto const& self) -> bool {
@@ -98,8 +90,6 @@ class Transport {
 
   /**
    * @brief 检查设备是否已激活（DRIVER_OK 已设置）
-   *
-   * @return true 表示设备已激活，false 表示未激活
    */
   [[nodiscard]] auto IsActive(this auto const& self) -> bool {
     return (self.GetStatus() & kDriverOk) != 0;
@@ -107,11 +97,6 @@ class Transport {
 
   /**
    * @brief 确认并清除设备中断
-   *
-   * 读取中断状态，如果有中断则确认清除。
-   * 通用逻辑通过 Deducing this 在编译期分发到子类的
-   * GetInterruptStatus() 和 AckInterrupt()。
-   *
    * @see virtio-v1.2#2.3 Notifications
    */
   auto AcknowledgeInterrupt(this auto&& self) -> void {

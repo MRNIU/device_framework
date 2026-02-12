@@ -52,18 +52,13 @@ constexpr int kMaxDevices = 8;
 /// 块设备的 Device ID
 constexpr uint32_t kBlockDeviceId = 2;
 
-/**
- * @brief 静态 DMA 内存区域
- *
- * 在裸机环境中无法使用 malloc，使用静态缓冲区模拟 DMA 内存。
- * 需要页对齐以满足 DMA 要求。
- */
+/// 静态 DMA 内存区域
 alignas(4096) uint8_t g_vq_dma_buf[32768];
 
-/// 数据缓冲区（一个扇区大小）
+/// 数据缓冲区
 alignas(16) uint8_t g_data_buf[virtio_driver::blk::kSectorSize];
 
-/// 多扇区数据缓冲区（4 扇区，用于 SG 测试）
+/// 多扇区数据缓冲区（用于 SG 测试）
 alignas(16) uint8_t g_multi_sector_buf[4 * virtio_driver::blk::kSectorSize];
 
 /**

@@ -38,19 +38,8 @@ struct RiscvTraits {
   }
 };
 
-/**
- * @brief QEMU virt 机器上的 VirtIO MMIO 设备起始地址
- */
 constexpr uint64_t kVirtioMmioBase = 0x10001000;
-
-/**
- * @brief 每个 VirtIO MMIO 设备之间的地址间隔
- */
 constexpr uint64_t kVirtioMmioSize = 0x1000;
-
-/**
- * @brief 扫描的最大设备数量
- */
 constexpr int kMaxDevices = 8;
 }  // namespace
 
@@ -66,22 +55,18 @@ void test_virtio_mmio_device_status() {
 
   int devices_found = 0;
 
-  // 扫描所有可能的 MMIO 设备地址
   for (int i = 0; i < kMaxDevices; ++i) {
     uint64_t base = kVirtioMmioBase + i * kVirtioMmioSize;
 
     LOG_HEX("Probing device at address", base);
 
-    // 读取魔数
     auto magic = *reinterpret_cast<volatile uint32_t*>(base + 0x000);
 
-    // 跳过没有设备的位置（魔数不匹配）
     if (magic != virtio_driver::kMmioMagicValue) {
       LOG("  No device found (invalid magic)");
       continue;
     }
 
-    // 读取设备 ID，Device ID = 0 表示空的 MMIO 插槽
     auto device_id = *reinterpret_cast<volatile uint32_t*>(
         base + virtio_driver::MmioTransport<>::MmioReg::kDeviceId);
     if (device_id == 0) {
@@ -92,7 +77,6 @@ void test_virtio_mmio_device_status() {
     LOG("  Found valid VirtIO device!");
     devices_found++;
 
-    // 创建 MmioTransport 对象
     virtio_driver::MmioTransport<RiscvTraits> transport(base);
 
     // 测试 0: 验证传输层初始化成功

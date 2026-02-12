@@ -162,18 +162,7 @@ void test_framework_init();
 void test_framework_print_summary();
 
 /**
- * @brief 测试 VirtIO MMIO 读取设备状态的能力
- *
- * 该测试扫描 QEMU virt 机器上的 VirtIO MMIO 设备区域，
- * 验证以下功能：
- * - 魔数识别（0x74726976）
- * - 版本号检测（0x2 for virtio 1.0+）
- * - 设备 ID 读取
- * - 供应商 ID 读取
- * - 设备状态读取和写入
- *
- * @note QEMU virt 机器的 VirtIO MMIO 设备地址范围：
- *       0x10001000 - 0x10008000（每个设备间隔 0x1000）
+ * @brief 测试 VirtIO MMIO 设备状态读取
  */
 void test_virtio_mmio_device_status();
 

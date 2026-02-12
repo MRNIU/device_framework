@@ -391,7 +391,6 @@ class VirtioBlk {
                                    uint32_t queue_size = 128,
                                    uint64_t driver_features = 0)
       -> Expected<VirtioBlk> {
-    // 当前仅支持单队列
     if (queue_count == 0) {
       return std::unexpected(Error{ErrorCode::kInvalidArgument});
     }
@@ -405,7 +404,7 @@ class VirtioBlk {
       return std::unexpected(Error{ErrorCode::kTransportNotInitialized});
     }
 
-    // 2. 设备初始化序列（特性协商需在 Virtqueue 构造之前完成）
+    // 2. 设备初始化序列
     DeviceInitializer<Traits, TransportT<Traits>> initializer(transport);
 
     uint64_t wanted_features =
@@ -417,7 +416,6 @@ class VirtioBlk {
     }
     uint64_t negotiated = *negotiated_result;
 
-    // 验证 VERSION_1 已协商成功
     if ((negotiated & static_cast<uint64_t>(ReservedFeature::kVersion1)) == 0) {
       Traits::Log("Device does not support VERSION_1 (modern mode)");
       return std::unexpected(Error{ErrorCode::kFeatureNegotiationFailed});
@@ -431,7 +429,7 @@ class VirtioBlk {
           "VIRTIO_F_EVENT_IDX negotiated, notification suppression enabled");
     }
 
-    // 3. 创建 Virtqueue（在特性协商之后，根据 event_idx 结果构造）
+    // 3. 创建 Virtqueue
     uint64_t dma_phys = Traits::VirtToPhys(vq_dma_buf);
     VirtqueueT<Traits> vq(vq_dma_buf, dma_phys,
                           static_cast<uint16_t>(queue_size), event_idx);
@@ -520,7 +518,6 @@ class VirtioBlk {
     Traits::Wmb();
 
     if (vq_.EventIdxEnabled()) {
-      // Event Index 通知抑制：仅当设备期望的 avail idx 被超过时才通知
       auto* avail_event_ptr = vq_.UsedAvailEvent();
       if (avail_event_ptr != nullptr) {
         uint16_t avail_event = *avail_event_ptr;
@@ -560,10 +557,7 @@ class VirtioBlk {
     }
     stats_.interrupts_handled++;
 
-    // 处理完成的请求
     ProcessCompletions(static_cast<CompletionCallback&&>(on_complete));
-
-    // 更新 avail->used_event 告知设备下次何时发送中断
     UpdateUsedEvent();
   }
 
@@ -612,7 +606,6 @@ class VirtioBlk {
 
     Kick(0);
 
-    // 轮询等待完成
     static constexpr uint32_t kMaxSpinIterations = 100000000;
     for (uint32_t i = 0; i < kMaxSpinIterations; ++i) {
       Traits::Rmb();
@@ -627,7 +620,6 @@ class VirtioBlk {
       return std::unexpected(Error{ErrorCode::kTimeout});
     }
 
-    // 处理完成的请求
     ErrorCode result = ErrorCode::kSuccess;
     bool done = false;
     ProcessCompletions([&done, &result](UserData /*token*/, ErrorCode status) {
@@ -635,7 +627,6 @@ class VirtioBlk {
       result = status;
     });
 
-    // 更新 used_event 确保设备继续发送中断
     UpdateUsedEvent();
 
     if (!done) {
@@ -675,7 +666,6 @@ class VirtioBlk {
 
     Kick(0);
 
-    // 轮询等待完成
     static constexpr uint32_t kMaxSpinIterations = 100000000;
     for (uint32_t i = 0; i < kMaxSpinIterations; ++i) {
       Traits::Rmb();
@@ -690,7 +680,6 @@ class VirtioBlk {
       return std::unexpected(Error{ErrorCode::kTimeout});
     }
 
-    // 处理完成的请求
     ErrorCode result = ErrorCode::kSuccess;
     bool done = false;
     ProcessCompletions([&done, &result](UserData /*token*/, ErrorCode status) {
@@ -698,7 +687,6 @@ class VirtioBlk {
       result = status;
     });
 
-    // 更新 used_event 确保设备继续发送中断
     UpdateUsedEvent();
 
     if (!done) {
@@ -931,17 +919,14 @@ class VirtioBlk {
                                uint64_t sector, const IoVec* buffers,
                                size_t buffer_count, UserData token)
       -> Expected<void> {
-    // 当前仅支持 queue 0
     if (queue_index != 0) {
       return std::unexpected(Error{ErrorCode::kInvalidArgument});
     }
 
-    // 检查 SG 元素数量限制（header + data[] + status）
     if (buffer_count + 2 > kMaxSgElements) {
       return std::unexpected(Error{ErrorCode::kInvalidArgument});
     }
 
-    // 分配请求槽
     auto slot_result = AllocRequestSlot();
     if (!slot_result) {
       stats_.queue_full_errors++;
@@ -950,30 +935,25 @@ class VirtioBlk {
     uint16_t slot_idx = *slot_result;
     auto& slot = slots_[slot_idx];
 
-    // 填充请求头
     slot.header.type = static_cast<uint32_t>(type);
     slot.header.reserved = 0;
     slot.header.sector = sector;
     slot.status = 0xFF;  // sentinel：设备完成后会覆写
     slot.token = token;
 
-    // 构建 Scatter-Gather 描述符链
     IoVec readable_iovs[kMaxSgElements];
     IoVec writable_iovs[kMaxSgElements];
     size_t readable_count = 0;
     size_t writable_count = 0;
 
-    // 请求头始终为 device-readable
     readable_iovs[readable_count++] = {Traits::VirtToPhys(&slot.header),
                                        sizeof(BlkReqHeader)};
 
     if (type == ReqType::kIn) {
-      // 读请求：数据缓冲区为 device-writable
       for (size_t i = 0; i < buffer_count; ++i) {
         writable_iovs[writable_count++] = buffers[i];
       }
     } else {
-      // 写请求：数据缓冲区为 device-readable
       for (size_t i = 0; i < buffer_count; ++i) {
         readable_iovs[readable_count++] = buffers[i];
       }
@@ -985,10 +965,8 @@ class VirtioBlk {
             const_cast<uint8_t*>(static_cast<volatile uint8_t*>(&slot.status))),
         sizeof(uint8_t)};
 
-    // 写屏障：确保请求头写入对设备可见
     Traits::Wmb();
 
-    // 提交描述符链
     auto chain_result = vq_.SubmitChain(readable_iovs, readable_count,
                                         writable_iovs, writable_count);
     if (!chain_result) {
@@ -1016,7 +994,6 @@ class VirtioBlk {
    */
   template <typename CompletionCallback>
   auto ProcessCompletions(CompletionCallback&& on_complete) -> void {
-    // 读屏障：确保读取到设备最新的 Used Ring 写入
     Traits::Rmb();
 
     while (vq_.HasUsed()) {
@@ -1028,26 +1005,18 @@ class VirtioBlk {
       auto elem = *elem_result;
       auto head = static_cast<uint16_t>(elem.id);
 
-      // 查找请求槽
       uint16_t slot_idx = FindSlotByDescHead(head);
       if (slot_idx < kMaxInflight) {
         auto& slot = slots_[slot_idx];
 
-        // 读屏障：确保状态字节的写入对 CPU 可见
         Traits::Rmb();
 
-        // 将设备 BlkStatus 映射为 ErrorCode
         ErrorCode ec = MapBlkStatus(slot.status);
         on_complete(slot.token, ec);
-
-        // 累计统计
         stats_.bytes_transferred += elem.len;
-
-        // 释放资源
         FreeRequestSlot(slot_idx);
       }
 
-      // 释放描述符链
       (void)vq_.FreeChain(head);
     }
   }
