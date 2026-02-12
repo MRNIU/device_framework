@@ -56,7 +56,7 @@ static constexpr uint32_t kMmioVersionModern = 0x02;
  * @see virtio-v1.2#4.2 Virtio Over MMIO
  */
 template <VirtioEnvironmentTraits Traits = NullTraits>
-class MmioTransport final : public Transport<Traits, MmioTransport<Traits>> {
+class MmioTransport final : public Transport<Traits> {
  public:
   /**
    * @brief MMIO 寄存器偏移量
@@ -177,7 +177,7 @@ class MmioTransport final : public Transport<Traits, MmioTransport<Traits>> {
   /// @name 构造/析构函数
   /// @{
   MmioTransport(MmioTransport&& other) noexcept
-      : Transport<Traits, MmioTransport>(std::move(other)),
+      : Transport<Traits>(std::move(other)),
         base_(other.base_),
         is_valid_(other.is_valid_),
         device_id_(other.device_id_),
@@ -189,13 +189,9 @@ class MmioTransport final : public Transport<Traits, MmioTransport<Traits>> {
   auto operator=(const MmioTransport&) -> MmioTransport& = delete;
   /// @}
 
-  [[nodiscard]] auto GetDeviceId() const -> uint32_t {
-    return device_id_;
-  }
+  [[nodiscard]] auto GetDeviceId() const -> uint32_t { return device_id_; }
 
-  [[nodiscard]] auto GetVendorId() const -> uint32_t {
-    return vendor_id_;
-  }
+  [[nodiscard]] auto GetVendorId() const -> uint32_t { return vendor_id_; }
 
   [[nodiscard]] auto GetStatus() const -> uint32_t {
     return Read<uint32_t>(MmioReg::kStatus);

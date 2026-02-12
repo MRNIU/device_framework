@@ -12,16 +12,16 @@
 namespace virtio_driver {
 
 /**
- * @brief Virtio 传输层 CRTP 基类（零虚表开销）
+ * @brief Virtio 传输层基类（零虚表开销，C++23 Deducing this）
  *
- * 通过 CRTP（Curiously Recurring Template Pattern）实现编译期多态，
- * 消除虚表指针开销，实现零开销抽象。子类（MmioTransport、PciTransport）
- * 继承此基类并提供具体的寄存器访问实现。
+ * 利用 C++23 Deducing this（显式对象参数，P0847）实现编译期多态，
+ * 消除虚表指针开销和 CRTP static_cast 样板代码，实现零开销抽象。
+ * 子类（MmioTransport、PciTransport）继承此基类并提供具体的寄存器访问实现。
  *
  * 基类仅提供通用逻辑方法（Reset、NeedsReset、IsActive、AcknowledgeInterrupt），
- * 通过 CRTP 静态分发调用子类的具体实现。
+ * 通过 Deducing this 在编译期静态分发到子类的具体实现。
  *
- * 子类应提供以下方法（隐式接口，不再通过纯虚函数声明）：
+ * 子类应提供以下方法（隐式接口）：
  * - IsValid() const -> bool
  * - GetDeviceId() const -> uint32_t
  * - GetVendorId() const -> uint32_t
@@ -46,10 +46,9 @@ namespace virtio_driver {
  * - GetConfigGeneration() const -> uint32_t
  *
  * @tparam Traits 平台环境特征类型
- * @tparam Derived CRTP 派生类类型
  * @see virtio-v1.2#4 Virtio Transport Options
  */
-template <VirtioEnvironmentTraits Traits, typename Derived>
+template <VirtioEnvironmentTraits Traits = NullTraits>
 class Transport {
  public:
   /**
@@ -82,7 +81,7 @@ class Transport {
    * @see virtio-v1.2#2.1 Device Status Field
    * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
    */
-  auto Reset() -> void { derived().SetStatus(kReset); }
+  auto Reset(this auto&& self) -> void { self.SetStatus(kReset); }
 
   /**
    * @brief 检查设备是否需要重置
@@ -93,8 +92,8 @@ class Transport {
    * @return true 表示设备需要重置，false 表示设备正常
    * @see virtio-v1.2#2.1 Device Status Field
    */
-  [[nodiscard]] auto NeedsReset() const -> bool {
-    return (derived().GetStatus() & kDeviceNeedsReset) != 0;
+  [[nodiscard]] auto NeedsReset(this auto const& self) -> bool {
+    return (self.GetStatus() & kDeviceNeedsReset) != 0;
   }
 
   /**
@@ -102,22 +101,23 @@ class Transport {
    *
    * @return true 表示设备已激活，false 表示未激活
    */
-  [[nodiscard]] auto IsActive() const -> bool {
-    return (derived().GetStatus() & kDriverOk) != 0;
+  [[nodiscard]] auto IsActive(this auto const& self) -> bool {
+    return (self.GetStatus() & kDriverOk) != 0;
   }
 
   /**
    * @brief 确认并清除设备中断
    *
    * 读取中断状态，如果有中断则确认清除。
-   * 通用逻辑通过 CRTP 分发到子类的 GetInterruptStatus() 和 AckInterrupt()。
+   * 通用逻辑通过 Deducing this 在编译期分发到子类的
+   * GetInterruptStatus() 和 AckInterrupt()。
    *
    * @see virtio-v1.2#2.3 Notifications
    */
-  auto AcknowledgeInterrupt() -> void {
-    auto status = derived().GetInterruptStatus();
+  auto AcknowledgeInterrupt(this auto&& self) -> void {
+    auto status = self.GetInterruptStatus();
     if (status != 0) {
-      derived().AckInterrupt(status);
+      self.AckInterrupt(status);
     }
   }
 
@@ -131,16 +131,6 @@ class Transport {
   Transport(const Transport&) = delete;
   auto operator=(const Transport&) -> Transport& = delete;
   /// @}
-
- private:
-  /// @brief CRTP 向下转型（非 const 版本）
-  [[nodiscard]] auto derived() -> Derived& {
-    return *static_cast<Derived*>(this);
-  }
-  /// @brief CRTP 向下转型（const 版本）
-  [[nodiscard]] auto derived() const -> const Derived& {
-    return *static_cast<const Derived*>(this);
-  }
 };
 
 }  // namespace virtio_driver
