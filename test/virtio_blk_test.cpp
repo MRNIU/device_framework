@@ -685,6 +685,301 @@ void test_virtio_blk() {
         "Event Index rapid: bytes_transferred increased");
   }
 
+  // === 测试 18: HandleInterrupt 无待处理请求时回调不应触发 ===
+  {
+    LOG("Testing HandleInterrupt with no pending requests...");
+    uint32_t callback_count = 0;
+    blk.HandleInterrupt([&callback_count](void* /*token*/,
+                                          virtio_driver::ErrorCode /*status*/) {
+      ++callback_count;
+    });
+    EXPECT_EQ(static_cast<uint32_t>(0), callback_count,
+              "HandleInterrupt: callback not invoked when no pending requests");
+  }
+
+  // === 测试 19: HandleInterrupt 单请求回调 - Token 传递验证 ===
+  {
+    LOG("Testing HandleInterrupt single request with token passthrough...");
+    constexpr uint64_t kTestSector = 60;
+    constexpr uintptr_t kMagicToken = 0xDEADBEEF;
+
+    // 写入已知数据
+    for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+      g_data_buf[i] = static_cast<uint8_t>(0x77 + (i & 0x0F));
+    }
+
+    virtio_driver::IoVec iov{RiscvTraits::VirtToPhys(g_data_buf),
+                             virtio_driver::blk::kSectorSize};
+    auto enq = blk.EnqueueWrite(0, kTestSector, &iov, 1,
+                                reinterpret_cast<void*>(kMagicToken));
+    EXPECT_TRUE(enq.has_value(), "HandleInterrupt token: enqueue succeeds");
+
+    if (enq.has_value()) {
+      blk.Kick(0);
+
+      bool cb_invoked = false;
+      uintptr_t received_token = 0;
+      virtio_driver::ErrorCode received_status =
+          virtio_driver::ErrorCode::kTimeout;
+      uint32_t cb_count = 0;
+
+      for (uint32_t spin = 0; spin < 100000000 && !cb_invoked; ++spin) {
+        RiscvTraits::Rmb();
+        blk.HandleInterrupt(
+            [&cb_invoked, &received_token, &received_status, &cb_count](
+                void* token, virtio_driver::ErrorCode status) {
+              cb_invoked = true;
+              received_token = reinterpret_cast<uintptr_t>(token);
+              received_status = status;
+              ++cb_count;
+            });
+      }
+
+      EXPECT_TRUE(cb_invoked, "HandleInterrupt token: callback invoked");
+      EXPECT_EQ(static_cast<uint64_t>(kMagicToken),
+                static_cast<uint64_t>(received_token),
+                "HandleInterrupt token: token matches 0xDEADBEEF");
+      EXPECT_EQ(static_cast<uint32_t>(virtio_driver::ErrorCode::kSuccess),
+                static_cast<uint32_t>(received_status),
+                "HandleInterrupt token: status is kSuccess");
+      EXPECT_EQ(static_cast<uint32_t>(1), cb_count,
+                "HandleInterrupt token: callback invoked exactly once");
+    }
+  }
+
+  // === 测试 20: HandleInterrupt 读请求回调 + 数据一致性验证 ===
+  {
+    LOG("Testing HandleInterrupt read callback with data verification...");
+    constexpr uint64_t kTestSector = 60;
+
+    // 清零缓冲区，读回之前测试 19 写入的数据
+    memzero(g_data_buf, sizeof(g_data_buf));
+
+    virtio_driver::IoVec iov{RiscvTraits::VirtToPhys(g_data_buf),
+                             virtio_driver::blk::kSectorSize};
+    auto enq = blk.EnqueueRead(0, kTestSector, &iov, 1, nullptr);
+    EXPECT_TRUE(enq.has_value(), "HandleInterrupt read: enqueue succeeds");
+
+    if (enq.has_value()) {
+      blk.Kick(0);
+
+      bool cb_invoked = false;
+      virtio_driver::ErrorCode cb_status = virtio_driver::ErrorCode::kTimeout;
+
+      for (uint32_t spin = 0; spin < 100000000 && !cb_invoked; ++spin) {
+        RiscvTraits::Rmb();
+        blk.HandleInterrupt(
+            [&cb_invoked, &cb_status](void* /*token*/,
+                                      virtio_driver::ErrorCode status) {
+              cb_invoked = true;
+              cb_status = status;
+            });
+      }
+
+      EXPECT_TRUE(cb_invoked, "HandleInterrupt read: callback invoked");
+      EXPECT_EQ(static_cast<uint32_t>(virtio_driver::ErrorCode::kSuccess),
+                static_cast<uint32_t>(cb_status),
+                "HandleInterrupt read: status is kSuccess");
+
+      // 验证读回数据与测试 19 写入的 pattern 一致
+      if (cb_invoked && cb_status == virtio_driver::ErrorCode::kSuccess) {
+        bool data_ok = true;
+        for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+          auto expected = static_cast<uint8_t>(0x77 + (i & 0x0F));
+          if (g_data_buf[i] != expected) {
+            data_ok = false;
+            LOG_HEX("  Read callback data mismatch at byte", i);
+            LOG_HEX("  expected", expected);
+            LOG_HEX("  got", g_data_buf[i]);
+            break;
+          }
+        }
+        EXPECT_TRUE(data_ok,
+                    "HandleInterrupt read: data matches previously written");
+      }
+    }
+  }
+
+  // === 测试 21: HandleInterrupt 批量请求 - 多 Token 精确匹配 ===
+  {
+    LOG("Testing HandleInterrupt batch with distinct tokens...");
+    constexpr size_t kBatchSize = 4;
+    constexpr uint64_t kBaseSector = 70;
+
+    struct TokenCtx {
+      uintptr_t token;
+      bool completed;
+      virtio_driver::ErrorCode status;
+    };
+    TokenCtx contexts[kBatchSize];
+    for (size_t i = 0; i < kBatchSize; ++i) {
+      contexts[i].token = 0xA000 + i;  // 不同的 magic token
+      contexts[i].completed = false;
+      contexts[i].status = virtio_driver::ErrorCode::kTimeout;
+    }
+
+    // 使用 g_multi_sector_buf 为每个请求分配独立的缓冲区
+    bool all_enqueued = true;
+    for (size_t r = 0; r < kBatchSize; ++r) {
+      auto* buf = g_multi_sector_buf + r * virtio_driver::blk::kSectorSize;
+      auto pattern = static_cast<uint8_t>(0xF0 + r);
+      for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+        buf[i] = static_cast<uint8_t>(pattern + (i & 0xFF));
+      }
+
+      virtio_driver::IoVec iov{RiscvTraits::VirtToPhys(buf),
+                               virtio_driver::blk::kSectorSize};
+      auto enq = blk.EnqueueWrite(0, kBaseSector + r, &iov, 1,
+                                  reinterpret_cast<void*>(contexts[r].token));
+      if (!enq.has_value()) {
+        all_enqueued = false;
+        LOG_HEX("  Batch token enqueue failed at index", r);
+        break;
+      }
+    }
+    EXPECT_TRUE(all_enqueued, "HandleInterrupt batch tokens: all enqueued");
+
+    if (all_enqueued) {
+      blk.Kick(0);
+
+      uint32_t completed_count = 0;
+      for (uint32_t spin = 0; spin < 100000000 && completed_count < kBatchSize;
+           ++spin) {
+        RiscvTraits::Rmb();
+        blk.HandleInterrupt([&contexts, &completed_count, kBatchSize](
+                                void* token, virtio_driver::ErrorCode status) {
+          auto tok = reinterpret_cast<uintptr_t>(token);
+          for (size_t i = 0; i < kBatchSize; ++i) {
+            if (contexts[i].token == tok && !contexts[i].completed) {
+              contexts[i].completed = true;
+              contexts[i].status = status;
+              ++completed_count;
+              break;
+            }
+          }
+        });
+        if (completed_count >= kBatchSize) {
+          break;
+        }
+      }
+
+      EXPECT_EQ(static_cast<uint32_t>(kBatchSize), completed_count,
+                "HandleInterrupt batch tokens: all 4 completed");
+
+      // 验证每个请求的 token 都被正确传回且状态为 kSuccess
+      bool all_tokens_ok = true;
+      bool all_status_ok = true;
+      for (size_t i = 0; i < kBatchSize; ++i) {
+        if (!contexts[i].completed) {
+          all_tokens_ok = false;
+          LOG_HEX("  Token not completed, index", i);
+        }
+        if (contexts[i].status != virtio_driver::ErrorCode::kSuccess) {
+          all_status_ok = false;
+          LOG_HEX("  Token request failed, index", i);
+        }
+      }
+      EXPECT_TRUE(all_tokens_ok,
+                  "HandleInterrupt batch tokens: all tokens matched");
+      EXPECT_TRUE(all_status_ok,
+                  "HandleInterrupt batch tokens: all returned kSuccess");
+    }
+  }
+
+  // === 测试 22: HandleInterrupt 统计数据验证 ===
+  {
+    LOG("Testing HandleInterrupt stats update...");
+    auto stats_before = blk.GetStats();
+    uint64_t irq_before = stats_before.interrupts_handled;
+    uint64_t bytes_before = stats_before.bytes_transferred;
+
+    // 执行一次写请求
+    for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+      g_data_buf[i] = static_cast<uint8_t>(0x99);
+    }
+    virtio_driver::IoVec iov{RiscvTraits::VirtToPhys(g_data_buf),
+                             virtio_driver::blk::kSectorSize};
+    auto enq = blk.EnqueueWrite(0, 80, &iov, 1, nullptr);
+    EXPECT_TRUE(enq.has_value(), "HandleInterrupt stats: enqueue succeeds");
+
+    if (enq.has_value()) {
+      blk.Kick(0);
+
+      bool done = false;
+      for (uint32_t spin = 0; spin < 100000000 && !done; ++spin) {
+        RiscvTraits::Rmb();
+        blk.HandleInterrupt(
+            [&done](void* /*token*/, virtio_driver::ErrorCode /*status*/) {
+              done = true;
+            });
+      }
+      EXPECT_TRUE(done, "HandleInterrupt stats: request completed");
+
+      auto stats_after = blk.GetStats();
+      EXPECT_TRUE(stats_after.interrupts_handled > irq_before,
+                  "HandleInterrupt stats: interrupts_handled incremented");
+      EXPECT_TRUE(stats_after.bytes_transferred > bytes_before,
+                  "HandleInterrupt stats: bytes_transferred incremented");
+      LOG_HEX("interrupts_handled delta",
+              stats_after.interrupts_handled - irq_before);
+      LOG_HEX("bytes_transferred delta",
+              stats_after.bytes_transferred - bytes_before);
+    }
+  }
+
+  // === 测试 23: HandleInterrupt 完成后再次调用不会重复触发回调 ===
+  {
+    LOG("Testing HandleInterrupt idempotency after completion...");
+    constexpr uint64_t kTestSector = 90;
+
+    // 写入一个扇区
+    for (size_t i = 0; i < virtio_driver::blk::kSectorSize; ++i) {
+      g_data_buf[i] = static_cast<uint8_t>(0xAB);
+    }
+    virtio_driver::IoVec iov{RiscvTraits::VirtToPhys(g_data_buf),
+                             virtio_driver::blk::kSectorSize};
+    auto enq = blk.EnqueueWrite(0, kTestSector, &iov, 1, nullptr);
+    EXPECT_TRUE(enq.has_value(),
+                "HandleInterrupt idempotent: enqueue succeeds");
+
+    if (enq.has_value()) {
+      blk.Kick(0);
+
+      // 第一轮：等待回调触发
+      uint32_t first_round_cb = 0;
+      for (uint32_t spin = 0; spin < 100000000 && first_round_cb == 0; ++spin) {
+        RiscvTraits::Rmb();
+        blk.HandleInterrupt(
+            [&first_round_cb](void* /*token*/,
+                              virtio_driver::ErrorCode /*status*/) {
+              ++first_round_cb;
+            });
+      }
+      EXPECT_EQ(static_cast<uint32_t>(1), first_round_cb,
+                "HandleInterrupt idempotent: first round invoked once");
+
+      // 第二轮：已无待处理请求，回调不应再触发
+      uint32_t second_round_cb = 0;
+      blk.HandleInterrupt(
+          [&second_round_cb](void* /*token*/,
+                             virtio_driver::ErrorCode /*status*/) {
+            ++second_round_cb;
+          });
+      EXPECT_EQ(static_cast<uint32_t>(0), second_round_cb,
+                "HandleInterrupt idempotent: second round not invoked");
+
+      // 第三轮：再调用一次确认幂等性
+      uint32_t third_round_cb = 0;
+      blk.HandleInterrupt(
+          [&third_round_cb](void* /*token*/,
+                            virtio_driver::ErrorCode /*status*/) {
+            ++third_round_cb;
+          });
+      EXPECT_EQ(static_cast<uint32_t>(0), third_round_cb,
+                "HandleInterrupt idempotent: third round not invoked");
+    }
+  }
+
   // 清理：注销中断处理函数
   {
     auto dev_idx =

@@ -584,9 +584,6 @@ class VirtioBlk {
     stats_.interrupts_handled++;
     request_completed_ = true;
     Traits::Wmb();
-
-    // 更新 avail->used_event 告知设备下次何时发送中断
-    UpdateUsedEvent();
   }
 
   // ======== 同步便捷方法 ========
@@ -613,22 +610,20 @@ class VirtioBlk {
       return std::unexpected(enq.error());
     }
 
-    // 重置完成标志（在通知设备之前）
-    request_completed_ = false;
-    Traits::Mb();
-
     Kick(0);
 
     // 轮询等待完成
     static constexpr uint32_t kMaxSpinIterations = 100000000;
     for (uint32_t i = 0; i < kMaxSpinIterations; ++i) {
       Traits::Rmb();
-      if (request_completed_ || vq_.HasUsed()) {
+      if (vq_.HasUsed()) {
         break;
       }
     }
 
     if (!vq_.HasUsed()) {
+      Traits::Log("Read timeout: sector=%llu, no used buffer after spin",
+                  static_cast<unsigned long long>(sector));
       return std::unexpected(Error{ErrorCode::kTimeout});
     }
 
@@ -644,6 +639,9 @@ class VirtioBlk {
     UpdateUsedEvent();
 
     if (!done) {
+      Traits::Log(
+          "Read timeout: sector=%llu, ProcessCompletions yielded nothing",
+          static_cast<unsigned long long>(sector));
       return std::unexpected(Error{ErrorCode::kTimeout});
     }
     if (result != ErrorCode::kSuccess) {
@@ -675,22 +673,20 @@ class VirtioBlk {
       return std::unexpected(enq.error());
     }
 
-    // 重置完成标志（在通知设备之前）
-    request_completed_ = false;
-    Traits::Mb();
-
     Kick(0);
 
     // 轮询等待完成
     static constexpr uint32_t kMaxSpinIterations = 100000000;
     for (uint32_t i = 0; i < kMaxSpinIterations; ++i) {
       Traits::Rmb();
-      if (request_completed_ || vq_.HasUsed()) {
+      if (vq_.HasUsed()) {
         break;
       }
     }
 
     if (!vq_.HasUsed()) {
+      Traits::Log("Write timeout: sector=%llu, no used buffer after spin",
+                  static_cast<unsigned long long>(sector));
       return std::unexpected(Error{ErrorCode::kTimeout});
     }
 
@@ -706,6 +702,9 @@ class VirtioBlk {
     UpdateUsedEvent();
 
     if (!done) {
+      Traits::Log(
+          "Write timeout: sector=%llu, ProcessCompletions yielded nothing",
+          static_cast<unsigned long long>(sector));
       return std::unexpected(Error{ErrorCode::kTimeout});
     }
     if (result != ErrorCode::kSuccess) {
