@@ -696,5 +696,4 @@ class SplitVirtqueue final : public VirtqueueBase<Traits> {
 
 }  // namespace device_framework::detail::virtio
 
-#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_SPLIT_HPP_ \
-        */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_SPLIT_HPP_ */

@@ -60,5 +60,4 @@ class PciTransport final : public Transport<Traits> {
 
 }  // namespace device_framework::detail::virtio
 
-#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRANSPORT_PCI_HPP_ \
-        */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRANSPORT_PCI_HPP_ */

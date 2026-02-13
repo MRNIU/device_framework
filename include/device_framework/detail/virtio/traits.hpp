@@ -30,5 +30,4 @@ using NullVirtioTraits = device_framework::NullTraits;
 
 }  // namespace device_framework::detail::virtio
 
-#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRAITS_HPP_ \
-        */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRAITS_HPP_ */

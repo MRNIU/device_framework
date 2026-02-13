@@ -50,5 +50,4 @@ struct IoVec {
 
 }  // namespace device_framework::detail::virtio
 
-#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_MISC_HPP_ \
-        */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_MISC_HPP_ */

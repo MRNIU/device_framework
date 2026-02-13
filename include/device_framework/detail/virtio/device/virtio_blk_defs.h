@@ -295,5 +295,4 @@ struct VirtioStats {
 
 }  // namespace device_framework::detail::virtio::blk
 
-#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEFS_H_ \
-        */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEFS_H_ */
