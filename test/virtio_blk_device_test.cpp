@@ -446,5 +446,249 @@ void test_virtio_blk_device() {
     }
   }
 
+  // === 测试 21: HandleInterrupt 带 token - 写入时 token 正确回传 ===
+  {
+    auto open_result = dev2.OpenReadWrite();
+    EXPECT_TRUE(open_result.has_value(),
+                "Open for token HandleInterrupt write test");
+
+    if (open_result.has_value()) {
+      for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
+        g_data_buf[i] = static_cast<uint8_t>(0xAA + (i & 0x0F));
+      }
+
+      auto& driver = dev2.GetDriver();
+      device_framework::virtio::IoVec iov{
+          RiscvTraits::VirtToPhys(g_data_buf),
+          device_framework::virtio::blk::kSectorSize};
+
+      // 使用一个已知地址作为 token
+      uint64_t token_tag = 0xDEAD'BEEF'1234'5678ULL;
+      auto* token_ptr = reinterpret_cast<void*>(token_tag);
+
+      auto enq = driver.EnqueueWrite(0, 87, &iov, 1, token_ptr);
+      EXPECT_TRUE(enq.has_value(), "Token write test: enqueue succeeds");
+
+      if (enq.has_value()) {
+        driver.Kick(0);
+
+        bool cb_invoked = false;
+        void* received_token = nullptr;
+        device_framework::ErrorCode cb_status =
+            device_framework::ErrorCode::kTimeout;
+
+        for (uint32_t spin = 0; spin < 100000000 && !cb_invoked; ++spin) {
+          RiscvTraits::Rmb();
+          dev2.HandleInterrupt(
+              [&cb_invoked, &received_token, &cb_status](
+                  void* token, device_framework::ErrorCode status) {
+                cb_invoked = true;
+                received_token = token;
+                cb_status = status;
+              });
+        }
+
+        EXPECT_TRUE(cb_invoked,
+                    "HandleInterrupt with token: write callback invoked");
+        EXPECT_EQ(static_cast<uint64_t>(token_tag),
+                  reinterpret_cast<uint64_t>(received_token),
+                  "HandleInterrupt with token: write token matches");
+        EXPECT_EQ(static_cast<uint32_t>(device_framework::ErrorCode::kSuccess),
+                  static_cast<uint32_t>(cb_status),
+                  "HandleInterrupt with token: write status is kSuccess");
+      }
+
+      (void)dev2.Release();
+    }
+  }
+
+  // === 测试 22: HandleInterrupt 带 token - 读取时 token 正确回传 ===
+  {
+    auto open_result = dev2.OpenReadWrite();
+    EXPECT_TRUE(open_result.has_value(),
+                "Open for token HandleInterrupt read test");
+
+    if (open_result.has_value()) {
+      Memzero(g_data_buf, sizeof(g_data_buf));
+
+      auto& driver = dev2.GetDriver();
+      device_framework::virtio::IoVec iov{
+          RiscvTraits::VirtToPhys(g_data_buf),
+          device_framework::virtio::blk::kSectorSize};
+
+      uint64_t token_tag = 0xCAFE'BABE'8765'4321ULL;
+      auto* token_ptr = reinterpret_cast<void*>(token_tag);
+
+      auto enq = driver.EnqueueRead(0, 87, &iov, 1, token_ptr);
+      EXPECT_TRUE(enq.has_value(), "Token read test: enqueue succeeds");
+
+      if (enq.has_value()) {
+        driver.Kick(0);
+
+        bool cb_invoked = false;
+        void* received_token = nullptr;
+        device_framework::ErrorCode cb_status =
+            device_framework::ErrorCode::kTimeout;
+
+        for (uint32_t spin = 0; spin < 100000000 && !cb_invoked; ++spin) {
+          RiscvTraits::Rmb();
+          dev2.HandleInterrupt(
+              [&cb_invoked, &received_token, &cb_status](
+                  void* token, device_framework::ErrorCode status) {
+                cb_invoked = true;
+                received_token = token;
+                cb_status = status;
+              });
+        }
+
+        EXPECT_TRUE(cb_invoked,
+                    "HandleInterrupt with token: read callback invoked");
+        EXPECT_EQ(static_cast<uint64_t>(token_tag),
+                  reinterpret_cast<uint64_t>(received_token),
+                  "HandleInterrupt with token: read token matches");
+        EXPECT_EQ(static_cast<uint32_t>(device_framework::ErrorCode::kSuccess),
+                  static_cast<uint32_t>(cb_status),
+                  "HandleInterrupt with token: read status is kSuccess");
+
+        // 验证读回的数据与测试 21 写入的一致
+        if (cb_invoked && cb_status == device_framework::ErrorCode::kSuccess) {
+          bool data_ok = true;
+          for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize;
+               ++i) {
+            auto expected = static_cast<uint8_t>(0xAA + (i & 0x0F));
+            if (g_data_buf[i] != expected) {
+              data_ok = false;
+              LOG_HEX("Token read data mismatch at byte", i);
+              break;
+            }
+          }
+          EXPECT_TRUE(data_ok,
+                      "HandleInterrupt with token: read data matches "
+                      "previously written");
+        }
+      }
+
+      (void)dev2.Release();
+    }
+  }
+
+  // === 测试 23: HandleInterrupt 带 token - 多请求不同 token 区分 ===
+  {
+    auto open_result = dev2.OpenReadWrite();
+    EXPECT_TRUE(open_result.has_value(),
+                "Open for multi-token HandleInterrupt test");
+
+    if (open_result.has_value()) {
+      // 准备两块不同数据
+      for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
+        g_data_buf[i] = static_cast<uint8_t>(0x11);
+      }
+      for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
+        g_multi_buf[i] = static_cast<uint8_t>(0x22);
+      }
+
+      auto& driver = dev2.GetDriver();
+      device_framework::virtio::IoVec iov1{
+          RiscvTraits::VirtToPhys(g_data_buf),
+          device_framework::virtio::blk::kSectorSize};
+      device_framework::virtio::IoVec iov2{
+          RiscvTraits::VirtToPhys(g_multi_buf),
+          device_framework::virtio::blk::kSectorSize};
+
+      uint64_t tag_a = 0xAAAA'AAAA'AAAA'AAAAULL;
+      uint64_t tag_b = 0xBBBB'BBBB'BBBB'BBBBULL;
+
+      auto enq1 =
+          driver.EnqueueWrite(0, 88, &iov1, 1, reinterpret_cast<void*>(tag_a));
+      EXPECT_TRUE(enq1.has_value(), "Multi-token test: enqueue #1 succeeds");
+
+      auto enq2 =
+          driver.EnqueueWrite(0, 89, &iov2, 1, reinterpret_cast<void*>(tag_b));
+      EXPECT_TRUE(enq2.has_value(), "Multi-token test: enqueue #2 succeeds");
+
+      if (enq1.has_value() && enq2.has_value()) {
+        driver.Kick(0);
+
+        uint32_t completed = 0;
+        bool token_a_seen = false;
+        bool token_b_seen = false;
+        bool all_success = true;
+
+        for (uint32_t spin = 0; spin < 100000000 && completed < 2; ++spin) {
+          RiscvTraits::Rmb();
+          dev2.HandleInterrupt(
+              [&](void* token, device_framework::ErrorCode status) {
+                ++completed;
+                if (status != device_framework::ErrorCode::kSuccess) {
+                  all_success = false;
+                }
+                auto t = reinterpret_cast<uint64_t>(token);
+                if (t == tag_a) {
+                  token_a_seen = true;
+                }
+                if (t == tag_b) {
+                  token_b_seen = true;
+                }
+              });
+        }
+
+        EXPECT_EQ(static_cast<uint32_t>(2), completed,
+                  "Multi-token: both completions received");
+        EXPECT_TRUE(token_a_seen, "Multi-token: token A (0xAAAA...) received");
+        EXPECT_TRUE(token_b_seen, "Multi-token: token B (0xBBBB...) received");
+        EXPECT_TRUE(all_success, "Multi-token: both statuses are kSuccess");
+      }
+
+      (void)dev2.Release();
+    }
+  }
+
+  // === 测试 24: HandleInterrupt 带 nullptr token ===
+  {
+    auto open_result = dev2.OpenReadWrite();
+    EXPECT_TRUE(open_result.has_value(),
+                "Open for nullptr token HandleInterrupt test");
+
+    if (open_result.has_value()) {
+      for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
+        g_data_buf[i] = static_cast<uint8_t>(0xFF);
+      }
+
+      auto& driver = dev2.GetDriver();
+      device_framework::virtio::IoVec iov{
+          RiscvTraits::VirtToPhys(g_data_buf),
+          device_framework::virtio::blk::kSectorSize};
+
+      // 显式传递 nullptr 作为 token
+      auto enq = driver.EnqueueWrite(0, 90, &iov, 1, nullptr);
+      EXPECT_TRUE(enq.has_value(), "nullptr token test: enqueue succeeds");
+
+      if (enq.has_value()) {
+        driver.Kick(0);
+
+        bool cb_invoked = false;
+        void* received_token = reinterpret_cast<void*>(0x1);  // 非 null 初始值
+
+        for (uint32_t spin = 0; spin < 100000000 && !cb_invoked; ++spin) {
+          RiscvTraits::Rmb();
+          dev2.HandleInterrupt(
+              [&cb_invoked, &received_token](
+                  void* token, device_framework::ErrorCode /*status*/) {
+                cb_invoked = true;
+                received_token = token;
+              });
+        }
+
+        EXPECT_TRUE(cb_invoked,
+                    "HandleInterrupt nullptr token: callback invoked");
+        EXPECT_EQ(static_cast<uint64_t>(0),
+                  reinterpret_cast<uint64_t>(received_token),
+                  "HandleInterrupt nullptr token: token is nullptr");
+      }
+
+      (void)dev2.Release();
+    }
+  }
+
   TEST_SUITE_END();
 }
