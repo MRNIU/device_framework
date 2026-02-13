@@ -308,5 +308,4 @@ class DeviceOperationsBase {
 
 }  // namespace device_framework
 
-#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_OPS_DEVICE_OPS_BASE_HPP_ \
-        */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_OPS_DEVICE_OPS_BASE_HPP_ */
