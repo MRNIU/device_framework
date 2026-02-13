@@ -8,7 +8,7 @@
  * @code
  * #include "device_framework/acpi.hpp"
  *
- * auto* rsdp = device_framework::acpi::FindRsdp(search_base);
+ * device_framework::acpi::Acpi acpi(rsdp_address);
  * @endcode
  */
 

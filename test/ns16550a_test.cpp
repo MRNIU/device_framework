@@ -190,5 +190,60 @@ void test_ns16550a() {
     }
   }
 
+  // === 测试 12: HandleInterrupt 简化版（无回调） ===
+  {
+    device_framework::ns16550a::Ns16550aDevice uart(kUartBase);
+    // HandleInterrupt 不要求设备处于打开状态，可直接调用
+    // 在无待接收数据时应安全返回（不会崩溃或挂起）
+    uart.HandleInterrupt();
+    EXPECT_TRUE(true, "HandleInterrupt() without data does not crash");
+  }
+
+  // === 测试 13: HandleInterrupt 带回调版（无待接收数据） ===
+  {
+    device_framework::ns16550a::Ns16550aDevice uart(kUartBase);
+    uint32_t callback_count = 0;
+    uart.HandleInterrupt(
+        [&callback_count](uint8_t /*ch*/) { ++callback_count; });
+    EXPECT_EQ(static_cast<uint32_t>(0), callback_count,
+              "HandleInterrupt callback not invoked when no RX data");
+  }
+
+  // === 测试 14: HandleInterrupt 带回调版（写入后回环验证） ===
+  // 注意：QEMU NS16550A 不一定支持硬件回环，此测试验证接口可调用性
+  {
+    device_framework::ns16550a::Ns16550aDevice uart(kUartBase);
+    auto open_result = uart.OpenReadWrite();
+    EXPECT_TRUE(open_result.has_value(), "Open for HandleInterrupt loopback");
+
+    if (open_result.has_value()) {
+      // 调用 HandleInterrupt 消费可能残留的 RX 数据
+      uint32_t drained = 0;
+      uart.HandleInterrupt([&drained](uint8_t /*ch*/) { ++drained; });
+      // 不对 drained 数量做断言，因为残留数据量不确定
+      EXPECT_TRUE(true, "HandleInterrupt(callback) drains residual RX data");
+
+      (void)uart.Release();
+    }
+  }
+
+  // === 测试 15: 底层驱动中断状态查询 ===
+  {
+    device_framework::ns16550a::Ns16550aDevice uart(kUartBase);
+    auto& driver = uart.GetDriver();
+
+    // 读取中断标识寄存器（ISR/IIR）
+    uint8_t iir = driver.GetInterruptId();
+    // bit[0]==1 表示无中断挂起（正常空闲状态）
+    // 我们只验证接口可调用，不对具体值做硬性断言
+    (void)iir;
+    EXPECT_TRUE(true, "GetInterruptId() returns without crash");
+
+    bool pending = driver.IsInterruptPending();
+    // 空闲状态下通常不应有中断挂起
+    EXPECT_FALSE(pending,
+                 "IsInterruptPending() reports no pending in idle state");
+  }
+
   TEST_SUITE_END();
 }

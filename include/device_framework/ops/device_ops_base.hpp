@@ -203,6 +203,38 @@ class DeviceOperationsBase {
   }
 
   /**
+   * @brief 中断处理（简化版，无回调）
+   *
+   * 在 ISR 或轮询循环中调用。确认设备中断并执行最小处理。
+   * 不同设备的行为不同：
+   * - UART：排空接收 FIFO 以清除 RX 中断
+   * - VirtIO：确认中断并设置完成标志
+   *
+   * @note 此方法可在中断上下文中安全调用（ISR-safe）
+   */
+  auto HandleInterrupt(this Derived& self) -> void { self.DoHandleInterrupt(); }
+
+  /**
+   * @brief 中断处理（带完成回调）
+   *
+   * 在 ISR 或轮询循环中调用。确认设备中断，并对每个已完成的事件
+   * 调用 on_complete 回调。
+   *
+   * 回调签名因设备类型而异：
+   * - UART 字符设备：void(uint8_t ch) —— 每接收一个字节调用一次
+   * - VirtIO 块设备：void(UserData token, ErrorCode status) ——
+   * 每完成一个请求调用一次
+   *
+   * @tparam CompletionCallback 完成回调类型，签名因设备而异
+   * @param on_complete 完成回调函数
+   */
+  template <typename CompletionCallback>
+  auto HandleInterrupt(this Derived& self, CompletionCallback&& on_complete)
+      -> void {
+    self.DoHandleInterrupt(static_cast<CompletionCallback&&>(on_complete));
+  }
+
+  /**
    * @brief 从设备偏移 0 处读取全部缓冲区
    */
   auto ReadAll(this Derived& self, std::span<uint8_t> buffer)
@@ -281,6 +313,22 @@ class DeviceOperationsBase {
     return std::unexpected(Error{ErrorCode::kDeviceNotSupported});
   }
 
+  /**
+   * @brief 默认中断处理实现（简化版）
+   *
+   * 派生类应覆写此方法以实现设备特定的中断处理逻辑。
+   */
+  auto DoHandleInterrupt() -> void {}
+
+  /**
+   * @brief 默认中断处理实现（带回调版）
+   *
+   * 派生类应覆写此方法以实现设备特定的中断处理和回调逻辑。
+   */
+  template <typename CompletionCallback>
+  auto DoHandleInterrupt([[maybe_unused]] CompletionCallback&& on_complete)
+      -> void {}
+
   /// @name 构造/析构函数
   /// @{
   DeviceOperationsBase() = default;
@@ -308,4 +356,5 @@ class DeviceOperationsBase {
 
 }  // namespace device_framework
 
-#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_OPS_DEVICE_OPS_BASE_HPP_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_OPS_DEVICE_OPS_BASE_HPP_ \
+        */

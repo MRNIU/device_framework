@@ -88,6 +88,29 @@ class Ns16550a {
     return (Read(kRegLSR) & (1 << 0)) != 0;
   }
 
+  /**
+   * @brief 读取中断标识寄存器（ISR / IIR）
+   *
+   * 返回值 bit[0]：0=有中断挂起，1=无中断挂起
+   * 返回值 bit[3:1]：中断源标识
+   *   - 0b011: 接收线状态错误
+   *   - 0b010: 接收数据就绪
+   *   - 0b110: 字符超时
+   *   - 0b001: THR 空（发送就绪）
+   *   - 0b000: Modem 状态变化
+   *
+   * @return 中断标识寄存器值
+   */
+  [[nodiscard]] auto GetInterruptId() const -> uint8_t { return Read(kRegISR); }
+
+  /**
+   * @brief 检查是否有中断挂起
+   * @return true 如果有中断挂起
+   */
+  [[nodiscard]] auto IsInterruptPending() const -> bool {
+    return (Read(kRegISR) & 0x01) == 0;
+  }
+
  private:
   /// @brief 从寄存器读取
   [[nodiscard]] auto Read(uint8_t reg) const -> uint8_t {
@@ -128,4 +151,5 @@ class Ns16550a {
 
 }  // namespace device_framework::detail::ns16550a
 
-#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_NS16550A_NS16550A_HPP_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_NS16550A_NS16550A_HPP_ \
+        */

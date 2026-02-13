@@ -251,5 +251,197 @@ void test_virtio_blk_device() {
     }
   }
 
+  // ======== HandleInterrupt 通过 BlockDevice ops 层测试 ========
+
+  // 需要重新创建设备实例（前一个已被同步 Read/Write 使用过）
+  Memzero(g_dma_buf, sizeof(g_dma_buf));
+  auto dev2_result = DeviceType::Create(blk_base, g_dma_buf);
+  EXPECT_TRUE(dev2_result.has_value(),
+              "VirtioBlkDevice::Create() for interrupt tests");
+  if (!dev2_result.has_value()) {
+    LOG("Cannot create device for interrupt tests, skipping");
+    TEST_SUITE_END();
+    return;
+  }
+  auto& dev2 = *dev2_result;
+
+  // === 测试 16: HandleInterrupt 简化版（无回调） ===
+  {
+    // 无待处理请求时调用应安全返回
+    dev2.HandleInterrupt();
+    EXPECT_TRUE(true,
+                "HandleInterrupt() without pending requests does not crash");
+  }
+
+  // === 测试 17: HandleInterrupt 带回调 - 无待处理请求 ===
+  {
+    uint32_t callback_count = 0;
+    dev2.HandleInterrupt(
+        [&callback_count](void* /*token*/,
+                          device_framework::ErrorCode /*status*/) {
+          ++callback_count;
+        });
+    EXPECT_EQ(static_cast<uint32_t>(0), callback_count,
+              "HandleInterrupt callback not invoked when no pending IO");
+  }
+
+  // === 测试 18: HandleInterrupt 带回调 - 异步写入完成 ===
+  {
+    auto open_result = dev2.OpenReadWrite();
+    EXPECT_TRUE(open_result.has_value(), "Open for async HandleInterrupt test");
+
+    if (open_result.has_value()) {
+      // 准备数据
+      for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
+        g_data_buf[i] = static_cast<uint8_t>(0xCC + (i & 0x0F));
+      }
+
+      // 通过底层驱动的异步接口提交请求
+      auto& driver = dev2.GetDriver();
+      device_framework::virtio::IoVec iov{
+          RiscvTraits::VirtToPhys(g_data_buf),
+          device_framework::virtio::blk::kSectorSize};
+      auto enq = driver.EnqueueWrite(0, 85, &iov, 1, nullptr);
+      EXPECT_TRUE(enq.has_value(), "Async enqueue for ops HandleInterrupt");
+
+      if (enq.has_value()) {
+        driver.Kick(0);
+
+        // 通过 ops 层的 HandleInterrupt 处理完成
+        bool cb_invoked = false;
+        device_framework::ErrorCode cb_status =
+            device_framework::ErrorCode::kTimeout;
+
+        for (uint32_t spin = 0; spin < 100000000 && !cb_invoked; ++spin) {
+          RiscvTraits::Rmb();
+          dev2.HandleInterrupt(
+              [&cb_invoked, &cb_status](void* /*token*/,
+                                        device_framework::ErrorCode status) {
+                cb_invoked = true;
+                cb_status = status;
+              });
+        }
+
+        EXPECT_TRUE(cb_invoked,
+                    "Ops-layer HandleInterrupt: write callback invoked");
+        EXPECT_EQ(static_cast<uint32_t>(device_framework::ErrorCode::kSuccess),
+                  static_cast<uint32_t>(cb_status),
+                  "Ops-layer HandleInterrupt: write status is kSuccess");
+      }
+
+      (void)dev2.Release();
+    }
+  }
+
+  // === 测试 19: HandleInterrupt 带回调 - 异步读取 + 数据验证 ===
+  {
+    auto open_result = dev2.OpenReadWrite();
+    EXPECT_TRUE(open_result.has_value(),
+                "Open for async read HandleInterrupt test");
+
+    if (open_result.has_value()) {
+      Memzero(g_data_buf, sizeof(g_data_buf));
+
+      auto& driver = dev2.GetDriver();
+      device_framework::virtio::IoVec iov{
+          RiscvTraits::VirtToPhys(g_data_buf),
+          device_framework::virtio::blk::kSectorSize};
+      auto enq = driver.EnqueueRead(0, 85, &iov, 1, nullptr);
+      EXPECT_TRUE(enq.has_value(),
+                  "Async read enqueue for ops HandleInterrupt");
+
+      if (enq.has_value()) {
+        driver.Kick(0);
+
+        bool cb_invoked = false;
+        device_framework::ErrorCode cb_status =
+            device_framework::ErrorCode::kTimeout;
+
+        for (uint32_t spin = 0; spin < 100000000 && !cb_invoked; ++spin) {
+          RiscvTraits::Rmb();
+          dev2.HandleInterrupt(
+              [&cb_invoked, &cb_status](void* /*token*/,
+                                        device_framework::ErrorCode status) {
+                cb_invoked = true;
+                cb_status = status;
+              });
+        }
+
+        EXPECT_TRUE(cb_invoked,
+                    "Ops-layer HandleInterrupt: read callback invoked");
+        EXPECT_EQ(static_cast<uint32_t>(device_framework::ErrorCode::kSuccess),
+                  static_cast<uint32_t>(cb_status),
+                  "Ops-layer HandleInterrupt: read status is kSuccess");
+
+        if (cb_invoked && cb_status == device_framework::ErrorCode::kSuccess) {
+          bool data_ok = true;
+          for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize;
+               ++i) {
+            auto expected = static_cast<uint8_t>(0xCC + (i & 0x0F));
+            if (g_data_buf[i] != expected) {
+              data_ok = false;
+              LOG_HEX("Ops HandleInterrupt read mismatch at byte", i);
+              break;
+            }
+          }
+          EXPECT_TRUE(data_ok,
+                      "Ops-layer HandleInterrupt: read data matches "
+                      "previously written");
+        }
+      }
+
+      (void)dev2.Release();
+    }
+  }
+
+  // === 测试 20: HandleInterrupt 幂等性 - ops 层 ===
+  {
+    auto open_result = dev2.OpenReadWrite();
+    EXPECT_TRUE(open_result.has_value(),
+                "Open for idempotent HandleInterrupt test");
+
+    if (open_result.has_value()) {
+      for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
+        g_data_buf[i] = static_cast<uint8_t>(0xEE);
+      }
+
+      auto& driver = dev2.GetDriver();
+      device_framework::virtio::IoVec iov{
+          RiscvTraits::VirtToPhys(g_data_buf),
+          device_framework::virtio::blk::kSectorSize};
+      auto enq = driver.EnqueueWrite(0, 86, &iov, 1, nullptr);
+      EXPECT_TRUE(enq.has_value(), "Idempotent test: enqueue succeeds");
+
+      if (enq.has_value()) {
+        driver.Kick(0);
+
+        // 第一次调用应触发回调
+        uint32_t first_cb = 0;
+        for (uint32_t spin = 0; spin < 100000000 && first_cb == 0; ++spin) {
+          RiscvTraits::Rmb();
+          dev2.HandleInterrupt(
+              [&first_cb](void* /*token*/,
+                          device_framework::ErrorCode /*status*/) {
+                ++first_cb;
+              });
+        }
+        EXPECT_EQ(static_cast<uint32_t>(1), first_cb,
+                  "Ops HandleInterrupt idempotent: first round once");
+
+        // 第二次调用不应再触发回调
+        uint32_t second_cb = 0;
+        dev2.HandleInterrupt(
+            [&second_cb](void* /*token*/,
+                         device_framework::ErrorCode /*status*/) {
+              ++second_cb;
+            });
+        EXPECT_EQ(static_cast<uint32_t>(0), second_cb,
+                  "Ops HandleInterrupt idempotent: second round zero");
+      }
+
+      (void)dev2.Release();
+    }
+  }
+
   TEST_SUITE_END();
 }

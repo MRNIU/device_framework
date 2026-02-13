@@ -177,6 +177,29 @@ class VirtioBlkDevice
    */
   auto DoGetBlockCount() const -> uint64_t { return driver_.GetCapacity(); }
 
+  /**
+   * @brief VirtIO 块设备中断处理（简化版）
+   *
+   * 确认设备中断并设置完成标志，供同步轮询使用。
+   *
+   * @note 可在中断上下文中安全调用（ISR-safe）
+   */
+  auto DoHandleInterrupt() -> void { driver_.HandleInterrupt(); }
+
+  /**
+   * @brief VirtIO 块设备中断处理（带回调版）
+   *
+   * 确认设备中断，遍历 Used Ring 中已完成的请求，
+   * 对每个请求调用 on_complete 回调。
+   *
+   * @tparam CompletionCallback 签名：void(UserData token, ErrorCode status)
+   * @param on_complete 完成回调函数
+   */
+  template <typename CompletionCallback>
+  auto DoHandleInterrupt(CompletionCallback&& on_complete) -> void {
+    driver_.HandleInterrupt(static_cast<CompletionCallback&&>(on_complete));
+  }
+
  private:
   /// @brief 只能通过 Create() 工厂方法创建
   explicit VirtioBlkDevice(DriverType driver)
@@ -196,4 +219,5 @@ class VirtioBlkDevice
 
 }  // namespace device_framework::detail::virtio::blk
 
-#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEVICE_HPP_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEVICE_HPP_ \
+        */

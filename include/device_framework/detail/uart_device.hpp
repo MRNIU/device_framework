@@ -94,6 +94,38 @@ class UartDevice : public CharDevice<Derived> {
 
   auto DoRelease() -> Expected<void> { return {}; }
 
+  /**
+   * @brief UART 中断处理（简化版）
+   *
+   * 排空接收 FIFO 以清除 RX 中断。
+   * 接收到的数据将被丢弃。如需保留数据，请使用带回调版本。
+   *
+   * @note 可在中断上下文中安全调用
+   */
+  auto DoHandleInterrupt() -> void {
+    while (driver_.HasData()) {
+      (void)driver_.TryGetChar();
+    }
+  }
+
+  /**
+   * @brief UART 中断处理（带回调版）
+   *
+   * 排空接收 FIFO，对每个接收到的字节调用 on_complete 回调。
+   *
+   * @tparam CompletionCallback 签名：void(uint8_t ch)
+   * @param on_complete 每接收一个字节调用一次的回调函数
+   */
+  template <typename CompletionCallback>
+  auto DoHandleInterrupt(CompletionCallback&& on_complete) -> void {
+    while (driver_.HasData()) {
+      auto ch = driver_.TryGetChar();
+      if (ch) {
+        on_complete(*ch);
+      }
+    }
+  }
+
   /// @name 构造/析构函数
   /// @{
   ~UartDevice() = default;

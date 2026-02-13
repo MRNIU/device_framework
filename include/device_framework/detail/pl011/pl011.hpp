@@ -98,6 +98,46 @@ class Pl011 {
     return !(Read32(kRegFR) & kFRRXFE);
   }
 
+  /**
+   * @brief 读取屏蔽后的中断状态寄存器（MIS）
+   *
+   * 返回经 IMSC 屏蔽后的中断状态，只包含被使能的中断源。
+   *
+   * @return 中断状态位掩码
+   * @see ARM PL011 Technical Reference Manual
+   */
+  [[nodiscard]] auto GetMaskedInterruptStatus() const -> uint32_t {
+    return Read32(kRegMIS);
+  }
+
+  /**
+   * @brief 读取原始中断状态寄存器（RIS）
+   *
+   * 返回所有中断源的原始状态（不经 IMSC 屏蔽）。
+   *
+   * @return 原始中断状态位掩码
+   */
+  [[nodiscard]] auto GetRawInterruptStatus() const -> uint32_t {
+    return Read32(kRegRIS);
+  }
+
+  /**
+   * @brief 清除指定中断
+   *
+   * 向 ICR 寄存器写入位掩码以清除对应的中断。
+   *
+   * @param mask 要清除的中断位掩码
+   */
+  auto ClearInterrupt(uint32_t mask) const -> void { Write32(kRegICR, mask); }
+
+  /**
+   * @brief 检查是否有中断挂起
+   * @return true 如果有屏蔽后的中断挂起
+   */
+  [[nodiscard]] auto IsInterruptPending() const -> bool {
+    return GetMaskedInterruptStatus() != 0;
+  }
+
  private:
   /// @brief 读取 32 位寄存器
   [[nodiscard]] auto Read32(uint32_t reg) const -> uint32_t {
@@ -125,6 +165,12 @@ class Pl011 {
   static constexpr uint32_t kRegCR = 0x30;
   /// interrupt mask set/clear
   static constexpr uint32_t kRegIMSC = 0x38;
+  /// raw interrupt status register
+  static constexpr uint32_t kRegRIS = 0x3C;
+  /// masked interrupt status register
+  static constexpr uint32_t kRegMIS = 0x40;
+  /// interrupt clear register
+  static constexpr uint32_t kRegICR = 0x44;
 
   /// flag register bits
   static constexpr uint32_t kFRTxFIFO = (1 << 5);
