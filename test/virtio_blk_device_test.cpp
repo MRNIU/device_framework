@@ -27,10 +27,13 @@ void test_virtio_blk_device() {
   }
 
   // === 测试 2: VirtioBlkDevice::Create() ===
-  Memzero(g_dma_buf, sizeof(g_dma_buf));
-
   using DeviceType =
       device_framework::virtio::blk::VirtioBlkDevice<RiscvTraits>;
+  constexpr size_t kRequiredDmaSize = DeviceType::CalcDmaSize();
+  static_assert(kDmaBufSize >= kRequiredDmaSize,
+                "g_dma_buf too small for VirtioBlkDevice");
+  Memzero(g_dma_buf, kRequiredDmaSize);
+
   auto dev_result = DeviceType::Create(blk_base, g_dma_buf);
   EXPECT_TRUE(dev_result.has_value(), "VirtioBlkDevice::Create() succeeds");
   if (!dev_result.has_value()) {
@@ -254,7 +257,7 @@ void test_virtio_blk_device() {
   // ======== HandleInterrupt 通过 BlockDevice ops 层测试 ========
 
   // 需要重新创建设备实例（前一个已被同步 Read/Write 使用过）
-  Memzero(g_dma_buf, sizeof(g_dma_buf));
+  Memzero(g_dma_buf, kRequiredDmaSize);
   auto dev2_result = DeviceType::Create(blk_base, g_dma_buf);
   EXPECT_TRUE(dev2_result.has_value(),
               "VirtioBlkDevice::Create() for interrupt tests");

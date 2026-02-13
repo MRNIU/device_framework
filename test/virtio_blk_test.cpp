@@ -33,9 +33,11 @@ void test_virtio_blk() {
   LOG_HEX("Block device found at", blk_base);
 
   // === 测试 2: VirtioBlk::Create() 一步初始化 ===
-  Memzero(g_dma_buf, sizeof(g_dma_buf));
-
   using VirtioBlkType = device_framework::virtio::blk::VirtioBlk<RiscvTraits>;
+  constexpr size_t kRequiredDmaSize = VirtioBlkType::CalcDmaSize();
+  static_assert(kDmaBufSize >= kRequiredDmaSize,
+                "g_dma_buf too small for VirtioBlk");
+  Memzero(g_dma_buf, kRequiredDmaSize);
   uint64_t extra_features =
       static_cast<uint64_t>(
           device_framework::virtio::blk::BlkFeatureBit::kSegMax) |
