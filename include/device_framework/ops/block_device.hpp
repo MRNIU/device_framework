@@ -35,6 +35,9 @@ class BlockDevice : public DeviceOperationsBase<Derived> {
   auto ReadBlocks(this Derived& self, uint64_t block_no,
                   std::span<uint8_t> buffer, size_t block_count)
       -> Expected<size_t> {
+    if (!self.IsOpened()) {
+      return std::unexpected(Error{ErrorCode::kDeviceNotOpen});
+    }
     auto check = self.ValidateBlockAccess(block_no, buffer.size(), block_count);
     if (!check) {
       return std::unexpected(check.error());
@@ -53,6 +56,9 @@ class BlockDevice : public DeviceOperationsBase<Derived> {
   auto WriteBlocks(this Derived& self, uint64_t block_no,
                    std::span<const uint8_t> data, size_t block_count)
       -> Expected<size_t> {
+    if (!self.IsOpened()) {
+      return std::unexpected(Error{ErrorCode::kDeviceNotOpen});
+    }
     auto check = self.ValidateBlockAccess(block_no, data.size(), block_count);
     if (!check) {
       return std::unexpected(check.error());
