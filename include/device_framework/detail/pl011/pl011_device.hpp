@@ -29,5 +29,4 @@ class Pl011Device : public UartDevice<Pl011Device, Pl011> {
 
 }  // namespace device_framework::detail::pl011
 
-#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_PL011_PL011_DEVICE_HPP_ \
-        */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_PL011_PL011_DEVICE_HPP_ */
