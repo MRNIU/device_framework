@@ -4,8 +4,8 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef VIRTIO_DRIVER_TESTS_PLIC_H_
-#define VIRTIO_DRIVER_TESTS_PLIC_H_
+#ifndef DEVICE_FRAMEWORK_TEST_PLIC_H_
+#define DEVICE_FRAMEWORK_TEST_PLIC_H_
 
 #include <cstdint>
 
@@ -101,4 +101,4 @@ inline void plic_handle_interrupt() {
   plic_complete(irq);
 }
 
-#endif  // VIRTIO_DRIVER_TESTS_PLIC_H_
+#endif /* DEVICE_FRAMEWORK_TEST_PLIC_H_ */

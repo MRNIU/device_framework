@@ -8,123 +8,43 @@
  * 及错误路径
  */
 
-#include <cstdarg>
 #include <cstdint>
 
 #include "device_framework/detail/virtio/traits.hpp"
 #include "device_framework/virtio_blk.hpp"
 #include "test.h"
-#include "uart.h"
-
-namespace {
-
-/// @brief RISC-V 平台环境 Traits 实现
-struct RiscvTraits {
-  static auto Log(const char* fmt, ...) -> int {
-    uart_puts("[BLK-DEV] ");
-    va_list ap;
-    va_start(ap, fmt);
-    int ret = uart_vprintf(fmt, ap);
-    va_end(ap);
-    uart_puts("\n");
-    return ret;
-  }
-  static auto Mb() -> void { asm volatile("fence iorw, iorw" ::: "memory"); }
-  static auto Rmb() -> void { asm volatile("fence ir, ir" ::: "memory"); }
-  static auto Wmb() -> void { asm volatile("fence ow, ow" ::: "memory"); }
-  static auto VirtToPhys(void* p) -> uintptr_t {
-    return reinterpret_cast<uintptr_t>(p);
-  }
-  static auto PhysToVirt(uintptr_t a) -> void* {
-    return reinterpret_cast<void*>(a);
-  }
-};
-
-/// QEMU virt 机器上的 VirtIO MMIO 设备起始地址
-constexpr uint64_t kVirtioMmioBase = 0x10001000;
-/// 每个 VirtIO MMIO 设备之间的地址间隔
-constexpr uint64_t kVirtioMmioSize = 0x1000;
-/// 扫描的最大设备数量
-constexpr int kMaxDevices = 8;
-/// 块设备的 Device ID
-constexpr uint32_t kBlockDeviceId = 2;
-
-/// 静态 DMA 内存区域
-alignas(4096) uint8_t g_dev_vq_dma_buf[32768];
-
-/// 数据缓冲区
-alignas(16) uint8_t g_dev_data_buf[device_framework::virtio::blk::kSectorSize];
-
-/// 多扇区缓冲区
-alignas(16) uint8_t
-    g_dev_multi_buf[4 * device_framework::virtio::blk::kSectorSize];
-
-/**
- * @brief 扫描 MMIO 设备，找到块设备的基地址
- */
-auto find_blk_device_for_dev_test() -> uint64_t {
-  for (int i = 0; i < kMaxDevices; ++i) {
-    uint64_t base = kVirtioMmioBase + i * kVirtioMmioSize;
-    auto magic = *reinterpret_cast<volatile uint32_t*>(base);
-    if (magic != device_framework::virtio::kMmioMagicValue) {
-      continue;
-    }
-    auto device_id = *reinterpret_cast<volatile uint32_t*>(
-        base + device_framework::virtio::MmioTransport<>::MmioReg::kDeviceId);
-    if (device_id == kBlockDeviceId) {
-      return base;
-    }
-  }
-  return 0;
-}
-
-/**
- * @brief 清零缓冲区
- */
-void dev_memzero(void* ptr, size_t len) {
-  auto* p = static_cast<volatile uint8_t*>(ptr);
-  for (size_t i = 0; i < len; ++i) {
-    p[i] = 0;
-  }
-}
-
-}  // namespace
+#include "test_env.h"
 
 void test_virtio_blk_device() {
-  uart_puts("\n");
-  uart_puts("╔════════════════════════════════════════╗\n");
-  uart_puts("║   VirtIO BlockDevice Interface Test    ║\n");
-  uart_puts("╚════════════════════════════════════════╝\n");
-
-  test_framework_init();
+  TEST_SUITE_BEGIN("VirtIO BlockDevice Interface");
 
   // === 测试 1: 查找块设备 ===
-  uint64_t blk_base = find_blk_device_for_dev_test();
+  uint64_t blk_base = FindBlkDevice();
   EXPECT_TRUE(blk_base != 0, "Find VirtIO block device");
   if (blk_base == 0) {
     LOG("No block device found, skipping remaining tests");
-    test_framework_print_summary();
+    TEST_SUITE_END();
     return;
   }
 
   // === 测试 2: VirtioBlkDevice::Create() ===
-  dev_memzero(g_dev_vq_dma_buf, sizeof(g_dev_vq_dma_buf));
+  Memzero(g_dma_buf, sizeof(g_dma_buf));
 
   using DeviceType =
       device_framework::virtio::blk::VirtioBlkDevice<RiscvTraits>;
-  auto dev_result = DeviceType::Create(blk_base, g_dev_vq_dma_buf);
+  auto dev_result = DeviceType::Create(blk_base, g_dma_buf);
   EXPECT_TRUE(dev_result.has_value(), "VirtioBlkDevice::Create() succeeds");
   if (!dev_result.has_value()) {
     LOG("VirtioBlkDevice::Create() failed, skipping remaining tests");
-    test_framework_print_summary();
+    TEST_SUITE_END();
     return;
   }
   auto& dev = *dev_result;
 
   // === 测试 3: 未打开时操作应失败 ===
   {
-    auto read_result = dev.ReadBlock(
-        0, std::span<uint8_t>(g_dev_data_buf, sizeof(g_dev_data_buf)));
+    auto read_result =
+        dev.ReadBlock(0, std::span<uint8_t>(g_data_buf, sizeof(g_data_buf)));
     EXPECT_FALSE(read_result.has_value(),
                  "ReadBlock before Open fails (not open)");
     if (!read_result.has_value()) {
@@ -173,26 +93,26 @@ void test_virtio_blk_device() {
   // === 测试 7: WriteBlock 写入单个块（扇区 80） ===
   {
     for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
-      g_dev_data_buf[i] = static_cast<uint8_t>(0xBB + (i & 0x0F));
+      g_data_buf[i] = static_cast<uint8_t>(0xBB + (i & 0x0F));
     }
 
     auto write_result = dev.WriteBlock(
-        80, std::span<const uint8_t>(g_dev_data_buf, sizeof(g_dev_data_buf)));
+        80, std::span<const uint8_t>(g_data_buf, sizeof(g_data_buf)));
     EXPECT_TRUE(write_result.has_value(), "WriteBlock(80) succeeds");
   }
 
   // === 测试 8: ReadBlock 读取单个块并验证 ===
   {
-    dev_memzero(g_dev_data_buf, sizeof(g_dev_data_buf));
+    Memzero(g_data_buf, sizeof(g_data_buf));
 
-    auto read_result = dev.ReadBlock(
-        80, std::span<uint8_t>(g_dev_data_buf, sizeof(g_dev_data_buf)));
+    auto read_result =
+        dev.ReadBlock(80, std::span<uint8_t>(g_data_buf, sizeof(g_data_buf)));
     EXPECT_TRUE(read_result.has_value(), "ReadBlock(80) succeeds");
 
     if (read_result.has_value()) {
       bool match = true;
       for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
-        if (g_dev_data_buf[i] != static_cast<uint8_t>(0xBB + (i & 0x0F))) {
+        if (g_data_buf[i] != static_cast<uint8_t>(0xBB + (i & 0x0F))) {
           match = false;
           LOG_HEX("Data mismatch at byte", i);
           break;
@@ -207,19 +127,16 @@ void test_virtio_blk_device() {
     constexpr size_t kNumBlocks = 4;
     constexpr uint64_t kBaseBlock = 90;
 
-    // 填充 4 个扇区的不同数据
     for (size_t s = 0; s < kNumBlocks; ++s) {
       auto pattern = static_cast<uint8_t>(0xC0 + s);
-      auto* buf =
-          g_dev_multi_buf + s * device_framework::virtio::blk::kSectorSize;
+      auto* buf = g_multi_buf + s * device_framework::virtio::blk::kSectorSize;
       for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
         buf[i] = static_cast<uint8_t>(pattern + (i & 0xFF));
       }
     }
 
     auto write_result = dev.WriteBlocks(
-        kBaseBlock,
-        std::span<const uint8_t>(g_dev_multi_buf, sizeof(g_dev_multi_buf)),
+        kBaseBlock, std::span<const uint8_t>(g_multi_buf, sizeof(g_multi_buf)),
         kNumBlocks);
     EXPECT_TRUE(write_result.has_value(), "WriteBlocks(4 blocks) succeeds");
     if (write_result.has_value()) {
@@ -228,11 +145,9 @@ void test_virtio_blk_device() {
                 "WriteBlocks returned correct block count");
     }
 
-    // 读回验证
-    dev_memzero(g_dev_multi_buf, sizeof(g_dev_multi_buf));
+    Memzero(g_multi_buf, sizeof(g_multi_buf));
     auto read_result = dev.ReadBlocks(
-        kBaseBlock,
-        std::span<uint8_t>(g_dev_multi_buf, sizeof(g_dev_multi_buf)),
+        kBaseBlock, std::span<uint8_t>(g_multi_buf, sizeof(g_multi_buf)),
         kNumBlocks);
     EXPECT_TRUE(read_result.has_value(), "ReadBlocks(4 blocks) succeeds");
 
@@ -241,7 +156,7 @@ void test_virtio_blk_device() {
       for (size_t s = 0; s < kNumBlocks && all_match; ++s) {
         auto pattern = static_cast<uint8_t>(0xC0 + s);
         auto* buf =
-            g_dev_multi_buf + s * device_framework::virtio::blk::kSectorSize;
+            g_multi_buf + s * device_framework::virtio::blk::kSectorSize;
         for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize;
              ++i) {
           auto expected = static_cast<uint8_t>(pattern + (i & 0xFF));
@@ -257,42 +172,40 @@ void test_virtio_blk_device() {
     }
   }
 
-  // === 测试 10: 字节级 Write(offset) → 块桥接 ===
+  // === 测试 10: 字节级 Write(offset) -> 块桥接 ===
   {
-    // offset = 512 * 95 = 扇区 95
     constexpr size_t kOffset = 95 * device_framework::virtio::blk::kSectorSize;
 
     for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
-      g_dev_data_buf[i] = static_cast<uint8_t>(0xDD + (i & 0x0F));
+      g_data_buf[i] = static_cast<uint8_t>(0xDD + (i & 0x0F));
     }
 
     auto write_result = dev.Write(
-        std::span<const uint8_t>(g_dev_data_buf, sizeof(g_dev_data_buf)),
-        kOffset);
+        std::span<const uint8_t>(g_data_buf, sizeof(g_data_buf)), kOffset);
     EXPECT_TRUE(write_result.has_value(),
                 "Write(offset=sector95) byte-level succeeds");
     if (write_result.has_value()) {
-      EXPECT_EQ(static_cast<uint64_t>(sizeof(g_dev_data_buf)),
+      EXPECT_EQ(static_cast<uint64_t>(sizeof(g_data_buf)),
                 static_cast<uint64_t>(*write_result),
                 "Write returned correct byte count");
     }
   }
 
-  // === 测试 11: 字节级 Read(offset) → 块桥接 ===
+  // === 测试 11: 字节级 Read(offset) -> 块桥接 ===
   {
     constexpr size_t kOffset = 95 * device_framework::virtio::blk::kSectorSize;
 
-    dev_memzero(g_dev_data_buf, sizeof(g_dev_data_buf));
+    Memzero(g_data_buf, sizeof(g_data_buf));
 
-    auto read_result = dev.Read(
-        std::span<uint8_t>(g_dev_data_buf, sizeof(g_dev_data_buf)), kOffset);
+    auto read_result =
+        dev.Read(std::span<uint8_t>(g_data_buf, sizeof(g_data_buf)), kOffset);
     EXPECT_TRUE(read_result.has_value(),
                 "Read(offset=sector95) byte-level succeeds");
 
     if (read_result.has_value()) {
       bool match = true;
       for (size_t i = 0; i < device_framework::virtio::blk::kSectorSize; ++i) {
-        if (g_dev_data_buf[i] != static_cast<uint8_t>(0xDD + (i & 0x0F))) {
+        if (g_data_buf[i] != static_cast<uint8_t>(0xDD + (i & 0x0F))) {
           match = false;
           LOG_HEX("Byte-level read mismatch at byte", i);
           break;
@@ -305,7 +218,7 @@ void test_virtio_blk_device() {
   // === 测试 12: 非对齐偏移的字节级 Read 应失败 ===
   {
     auto read_result =
-        dev.Read(std::span<uint8_t>(g_dev_data_buf, sizeof(g_dev_data_buf)),
+        dev.Read(std::span<uint8_t>(g_data_buf, sizeof(g_data_buf)),
                  100);  // 非 512 对齐
     EXPECT_FALSE(read_result.has_value(), "Read(offset=100 non-aligned) fails");
     if (!read_result.has_value()) {
@@ -324,8 +237,8 @@ void test_virtio_blk_device() {
 
   // === 测试 14: Release 后操作应失败 ===
   {
-    auto read_result = dev.ReadBlock(
-        0, std::span<uint8_t>(g_dev_data_buf, sizeof(g_dev_data_buf)));
+    auto read_result =
+        dev.ReadBlock(0, std::span<uint8_t>(g_data_buf, sizeof(g_data_buf)));
     EXPECT_FALSE(read_result.has_value(),
                  "ReadBlock after Release fails (not open)");
   }
@@ -339,5 +252,5 @@ void test_virtio_blk_device() {
     }
   }
 
-  test_framework_print_summary();
+  TEST_SUITE_END();
 }

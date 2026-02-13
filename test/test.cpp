@@ -1,4 +1,6 @@
 /**
+ * @file test.cpp
+ * @brief 测试框架实现：全局统计、横幅与摘要
  * @copyright Copyright The device_framework Contributors
  */
 
@@ -29,38 +31,38 @@ void* memset(void* dest, int c, size_t n) {
 }
 }
 
-TestStats g_test_stats = {0, 0, 0};
+TestStats g_suite_stats = {0, 0, 0};
+TestStats g_global_stats = {0, 0, 0};
 
 VirtioIrqHandler g_virtio_irq_handlers[8] = {};
 
-void test_framework_init() {
-  g_test_stats.total = 0;
-  g_test_stats.passed = 0;
-  g_test_stats.failed = 0;
+void test_print_banner() {
+  uart_puts("\n");
+  uart_puts(
+      "================================================================\n");
+  uart_puts("  device_framework Test Suite\n");
+  uart_puts(
+      "================================================================\n");
 }
 
-void test_framework_print_summary() {
+void test_print_summary() {
   uart_puts("\n");
-  uart_puts("========================================\n");
-  uart_puts("         Test Summary\n");
-  uart_puts("========================================\n");
-  uart_puts("Total tests: ");
-  uart_put_hex(g_test_stats.total);
-  uart_puts("\n");
-  uart_puts("Passed: ");
-  uart_put_hex(g_test_stats.passed);
-  uart_puts("\n");
-  uart_puts("Failed: ");
-  uart_put_hex(g_test_stats.failed);
-  uart_puts("\n");
+  uart_puts(
+      "================================================================\n");
+  uart_puts("  Total: ");
+  uart_put_dec(g_global_stats.passed);
+  uart_putc('/');
+  uart_put_dec(g_global_stats.total);
+  uart_puts(" passed");
 
-  if (g_test_stats.failed == 0) {
-    uart_puts("========================================\n");
-    uart_puts("    ✓ ALL TESTS PASSED!\n");
-    uart_puts("========================================\n");
+  if (g_global_stats.failed == 0) {
+    uart_puts(" - ALL TESTS PASSED\n");
   } else {
-    uart_puts("========================================\n");
-    uart_puts("    ✗ SOME TESTS FAILED\n");
-    uart_puts("========================================\n");
+    uart_puts(" - ");
+    uart_put_dec(g_global_stats.failed);
+    uart_puts(" FAILED\n");
   }
+
+  uart_puts(
+      "================================================================\n");
 }

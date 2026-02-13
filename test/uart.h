@@ -2,8 +2,8 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef VIRTIO_DRIVER_TESTS_UART_H_
-#define VIRTIO_DRIVER_TESTS_UART_H_
+#ifndef DEVICE_FRAMEWORK_TEST_UART_H_
+#define DEVICE_FRAMEWORK_TEST_UART_H_
 
 #include <cstdarg>
 #include <cstdint>
@@ -83,4 +83,4 @@ auto uart_getc() -> int;
  */
 void uart_handle_interrupt();
 
-#endif  // VIRTIO_DRIVER_TESTS_UART_H_
+#endif /* DEVICE_FRAMEWORK_TEST_UART_H_ */

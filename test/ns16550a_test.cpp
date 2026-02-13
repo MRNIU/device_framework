@@ -12,7 +12,6 @@
 #include <cstdint>
 
 #include "test.h"
-#include "uart.h"
 
 namespace {
 
@@ -24,12 +23,7 @@ constexpr uint64_t kUartBase = 0x10000000;
 }  // namespace
 
 void test_ns16550a() {
-  uart_puts("\n");
-  uart_puts("╔════════════════════════════════════════╗\n");
-  uart_puts("║   NS16550A CharDevice Interface Test   ║\n");
-  uart_puts("╚════════════════════════════════════════╝\n");
-
-  test_framework_init();
+  TEST_SUITE_BEGIN("NS16550A CharDevice");
 
   // === 测试 1: 构造 Ns16550aDevice ===
   {
@@ -196,5 +190,5 @@ void test_ns16550a() {
     }
   }
 
-  test_framework_print_summary();
+  TEST_SUITE_END();
 }

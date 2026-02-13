@@ -14,6 +14,7 @@ ADD_EXECUTABLE (
     uart.cpp
     trap.cpp
     test.cpp
+    test_env.cpp
     mmio_test.cpp
     virtio_blk_test.cpp
     virtio_blk_device_test.cpp
