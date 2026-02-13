@@ -2,8 +2,8 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEVICE_HPP_
-#define DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEVICE_HPP_
+#ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEVICE_HPP_
+#define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEVICE_HPP_
 
 #include <cstdint>
 #include <span>
@@ -13,7 +13,7 @@
 #include "device_framework/expected.hpp"
 #include "device_framework/ops/block_device.hpp"
 
-namespace device_framework::virtio::blk {
+namespace device_framework::detail::virtio::blk {
 
 /**
  * @brief VirtIO 块设备统一接口适配器
@@ -194,6 +194,7 @@ class VirtioBlkDevice
   OpenFlags flags_{0};
 };
 
-}  // namespace device_framework::virtio::blk
+}  // namespace device_framework::detail::virtio::blk
 
-#endif /* DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEVICE_HPP_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEVICE_HPP_ \
+        */

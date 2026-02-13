@@ -2,13 +2,13 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DETAIL_PL011_PL011_HPP_
-#define DEVICE_FRAMEWORK_DETAIL_PL011_PL011_HPP_
+#ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_PL011_PL011_HPP_
+#define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_PL011_PL011_HPP_
 
 #include <cstdint>
 #include <optional>
 
-namespace device_framework::pl011 {
+namespace device_framework::detail::pl011 {
 
 /**
  * @brief PL011 串口驱动
@@ -146,6 +146,6 @@ class Pl011 {
   uint64_t baud_rate_ = 0;
 };
 
-}  // namespace device_framework::pl011
+}  // namespace device_framework::detail::pl011
 
-#endif /* DEVICE_FRAMEWORK_DETAIL_PL011_PL011_HPP_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_PL011_PL011_HPP_ */

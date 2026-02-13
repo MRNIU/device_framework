@@ -18,10 +18,18 @@
  * @endcode
  */
 
-#ifndef DEVICE_FRAMEWORK_VIRTIO_BLK_HPP_
-#define DEVICE_FRAMEWORK_VIRTIO_BLK_HPP_
+#ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_VIRTIO_BLK_HPP_
+#define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_VIRTIO_BLK_HPP_
 
 #include "device_framework/detail/virtio/device/virtio_blk_device.hpp"
 #include "device_framework/detail/virtio/traits.hpp"
 
-#endif /* DEVICE_FRAMEWORK_VIRTIO_BLK_HPP_ */
+namespace device_framework::virtio {
+using namespace detail::virtio;  // NOLINT(google-build-using-namespace)
+}  // namespace device_framework::virtio
+
+namespace device_framework::virtio::blk {
+using namespace detail::virtio::blk;  // NOLINT(google-build-using-namespace)
+}  // namespace device_framework::virtio::blk
+
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_VIRTIO_BLK_HPP_ */

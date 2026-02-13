@@ -2,12 +2,12 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRAITS_HPP_
-#define DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRAITS_HPP_
+#ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRAITS_HPP_
+#define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRAITS_HPP_
 
 #include "device_framework/traits.hpp"
 
-namespace device_framework::virtio {
+namespace device_framework::detail::virtio {
 
 /**
  * @brief VirtIO 驱动专用 Traits 约束
@@ -28,6 +28,7 @@ concept VirtioTraits = EnvironmentTraits<T> && BarrierTraits<T> && DmaTraits<T>;
  */
 using NullVirtioTraits = device_framework::NullTraits;
 
-}  // namespace device_framework::virtio
+}  // namespace device_framework::detail::virtio
 
-#endif /* DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRAITS_HPP_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRAITS_HPP_ \
+        */

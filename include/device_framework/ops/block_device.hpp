@@ -2,8 +2,8 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_OPS_BLOCK_DEVICE_HPP_
-#define DEVICE_FRAMEWORK_OPS_BLOCK_DEVICE_HPP_
+#ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_OPS_BLOCK_DEVICE_HPP_
+#define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_OPS_BLOCK_DEVICE_HPP_
 
 #include "device_framework/ops/device_ops_base.hpp"
 
@@ -224,4 +224,4 @@ class BlockDevice : public DeviceOperationsBase<Derived> {
 
 }  // namespace device_framework
 
-#endif /* DEVICE_FRAMEWORK_OPS_BLOCK_DEVICE_HPP_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_OPS_BLOCK_DEVICE_HPP_ */

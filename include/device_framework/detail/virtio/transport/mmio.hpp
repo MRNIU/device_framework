@@ -2,13 +2,13 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRANSPORT_MMIO_HPP_
-#define DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRANSPORT_MMIO_HPP_
+#ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRANSPORT_MMIO_HPP_
+#define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRANSPORT_MMIO_HPP_
 
 #include "device_framework/detail/virtio/transport/transport.hpp"
 #include "device_framework/expected.hpp"
 
-namespace device_framework::virtio {
+namespace device_framework::detail::virtio {
 
 /**
  * @brief MMIO 中断状态位
@@ -399,6 +399,7 @@ class MmioTransport final : public Transport<Traits> {
   uint32_t vendor_id_;
 };
 
-}  // namespace device_framework::virtio
+}  // namespace device_framework::detail::virtio
 
-#endif /* DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRANSPORT_MMIO_HPP_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRANSPORT_MMIO_HPP_ \
+        */

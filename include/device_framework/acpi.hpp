@@ -12,9 +12,13 @@
  * @endcode
  */
 
-#ifndef DEVICE_FRAMEWORK_ACPI_HPP_
-#define DEVICE_FRAMEWORK_ACPI_HPP_
+#ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_ACPI_HPP_
+#define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_ACPI_HPP_
 
 #include "device_framework/detail/acpi/acpi.hpp"
 
-#endif /* DEVICE_FRAMEWORK_ACPI_HPP_ */
+namespace device_framework::acpi {
+using namespace detail::acpi;  // NOLINT(google-build-using-namespace)
+}  // namespace device_framework::acpi
+
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_ACPI_HPP_ */

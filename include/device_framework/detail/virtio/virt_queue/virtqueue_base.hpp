@@ -2,8 +2,8 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_VIRTQUEUE_BASE_HPP_
-#define DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_VIRTQUEUE_BASE_HPP_
+#ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_VIRTQUEUE_BASE_HPP_
+#define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_VIRTQUEUE_BASE_HPP_
 
 #include <cstdint>
 
@@ -11,7 +11,7 @@
 #include "device_framework/detail/virtio/virt_queue/misc.hpp"
 #include "device_framework/expected.hpp"
 
-namespace device_framework::virtio {
+namespace device_framework::detail::virtio {
 
 /**
  * @brief Virtqueue 基类（C++23 Deducing this 编译期多态）
@@ -116,6 +116,7 @@ class VirtqueueBase {
   /// @}
 };
 
-}  // namespace device_framework::virtio
+}  // namespace device_framework::detail::virtio
 
-#endif /* DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_VIRTQUEUE_BASE_HPP_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_VIRTQUEUE_BASE_HPP_ \
+        */

@@ -2,8 +2,8 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_TRAITS_HPP_
-#define DEVICE_FRAMEWORK_TRAITS_HPP_
+#ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_TRAITS_HPP_
+#define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_TRAITS_HPP_
 
 #include <concepts>
 #include <cstddef>
@@ -72,4 +72,4 @@ struct NullTraits {
 
 }  // namespace device_framework
 
-#endif /* DEVICE_FRAMEWORK_TRAITS_HPP_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_TRAITS_HPP_ */

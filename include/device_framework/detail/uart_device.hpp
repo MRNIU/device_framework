@@ -2,16 +2,31 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DETAIL_UART_DEVICE_HPP_
-#define DEVICE_FRAMEWORK_DETAIL_UART_DEVICE_HPP_
+#ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_UART_DEVICE_HPP_
+#define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_UART_DEVICE_HPP_
 
+#include <concepts>
 #include <cstdint>
+#include <optional>
 #include <span>
 
 #include "device_framework/expected.hpp"
 #include "device_framework/ops/char_device.hpp"
 
-namespace device_framework {
+namespace device_framework::detail {
+
+/**
+ * @brief UART 底层驱动接口约束
+ *
+ * 定义 UART 底层驱动（NS16550A、PL011 等）必须满足的最小接口。
+ * UartDevice 的 DriverType 模板参数必须满足此 concept。
+ */
+template <typename T>
+concept UartDriver = requires(const T& driver, uint8_t ch) {
+  { driver.PutChar(ch) } -> std::same_as<void>;
+  { driver.TryGetChar() } -> std::same_as<std::optional<uint8_t>>;
+  { driver.HasData() } -> std::same_as<bool>;
+};
 
 /**
  * @brief UART 字符设备通用 CRTP 中间层
@@ -25,7 +40,7 @@ namespace device_framework {
  * @tparam Derived 具体设备类型（CRTP）
  * @tparam DriverType 底层 UART 驱动类型
  */
-template <class Derived, class DriverType>
+template <class Derived, UartDriver DriverType>
 class UartDevice : public CharDevice<Derived> {
  public:
   UartDevice() = default;
@@ -94,11 +109,11 @@ class UartDevice : public CharDevice<Derived> {
  private:
   /// @brief CRTP 基类需要访问 DoXxx 方法
   template <class>
-  friend class DeviceOperationsBase;
+  friend class ::device_framework::DeviceOperationsBase;
   template <class>
-  friend class CharDevice;
+  friend class ::device_framework::CharDevice;
 };
 
-}  // namespace device_framework
+}  // namespace device_framework::detail
 
-#endif /* DEVICE_FRAMEWORK_DETAIL_UART_DEVICE_HPP_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_UART_DEVICE_HPP_ */

@@ -2,8 +2,8 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_SPLIT_HPP_
-#define DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_SPLIT_HPP_
+#ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_SPLIT_HPP_
+#define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_SPLIT_HPP_
 
 #include <utility>
 
@@ -12,7 +12,7 @@
 #include "device_framework/detail/virtio/virt_queue/virtqueue_base.hpp"
 #include "device_framework/expected.hpp"
 
-namespace device_framework::virtio {
+namespace device_framework::detail::virtio {
 
 /**
  * @brief Split Virtqueue 管理类
@@ -694,6 +694,7 @@ class SplitVirtqueue final : public VirtqueueBase<Traits> {
   bool is_valid_ = false;
 };
 
-}  // namespace device_framework::virtio
+}  // namespace device_framework::detail::virtio
 
-#endif /* DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_SPLIT_HPP_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_VIRT_QUEUE_SPLIT_HPP_ \
+        */

@@ -2,8 +2,8 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DEFS_H_
-#define DEVICE_FRAMEWORK_DEFS_H_
+#ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DEFS_H_
+#define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DEFS_H_
 
 #include <cstdint>
 
@@ -23,4 +23,4 @@ enum class DeviceType : uint32_t {
 
 }  // namespace device_framework
 
-#endif /* DEVICE_FRAMEWORK_DEFS_H_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DEFS_H_ */

@@ -6,7 +6,7 @@
 
 #include "test_env.h"
 
-#include "device_framework/detail/virtio/transport/mmio.hpp"
+#include "device_framework/virtio_blk.hpp"
 
 void operator delete(void*, size_t) noexcept {}
 

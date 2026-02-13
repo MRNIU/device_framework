@@ -2,8 +2,8 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_OPS_DEVICE_OPS_BASE_HPP_
-#define DEVICE_FRAMEWORK_OPS_DEVICE_OPS_BASE_HPP_
+#ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_OPS_DEVICE_OPS_BASE_HPP_
+#define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_OPS_DEVICE_OPS_BASE_HPP_
 
 #include <atomic>
 #include <cstddef>
@@ -308,4 +308,5 @@ class DeviceOperationsBase {
 
 }  // namespace device_framework
 
-#endif /* DEVICE_FRAMEWORK_OPS_DEVICE_OPS_BASE_HPP_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_OPS_DEVICE_OPS_BASE_HPP_ \
+        */

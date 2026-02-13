@@ -2,8 +2,8 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_EXPECTED_HPP_
-#define DEVICE_FRAMEWORK_EXPECTED_HPP_
+#ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_EXPECTED_HPP_
+#define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_EXPECTED_HPP_
 
 #include <cstddef>
 #include <cstdint>
@@ -173,4 +173,4 @@ using Expected = std::expected<T, Error>;
 
 }  // namespace device_framework
 
-#endif /* DEVICE_FRAMEWORK_EXPECTED_HPP_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_EXPECTED_HPP_ */

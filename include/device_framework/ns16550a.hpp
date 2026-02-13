@@ -14,9 +14,13 @@
  * @endcode
  */
 
-#ifndef DEVICE_FRAMEWORK_NS16550A_HPP_
-#define DEVICE_FRAMEWORK_NS16550A_HPP_
+#ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_NS16550A_HPP_
+#define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_NS16550A_HPP_
 
 #include "device_framework/detail/ns16550a/ns16550a_device.hpp"
 
-#endif /* DEVICE_FRAMEWORK_NS16550A_HPP_ */
+namespace device_framework::ns16550a {
+using namespace detail::ns16550a;  // NOLINT(google-build-using-namespace)
+}  // namespace device_framework::ns16550a
+
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_NS16550A_HPP_ */

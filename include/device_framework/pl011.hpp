@@ -14,9 +14,13 @@
  * @endcode
  */
 
-#ifndef DEVICE_FRAMEWORK_PL011_HPP_
-#define DEVICE_FRAMEWORK_PL011_HPP_
+#ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_PL011_HPP_
+#define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_PL011_HPP_
 
 #include "device_framework/detail/pl011/pl011_device.hpp"
 
-#endif /* DEVICE_FRAMEWORK_PL011_HPP_ */
+namespace device_framework::pl011 {
+using namespace detail::pl011;  // NOLINT(google-build-using-namespace)
+}  // namespace device_framework::pl011
+
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_PL011_HPP_ */

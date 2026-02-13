@@ -4,12 +4,9 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#include "device_framework/detail/virtio/transport/mmio.hpp"
-
 #include <cstdint>
 
-#include "device_framework/detail/virtio/device/device_initializer.hpp"
-#include "device_framework/detail/virtio/traits.hpp"
+#include "device_framework/virtio_blk.hpp"
 #include "test.h"
 #include "test_env.h"
 

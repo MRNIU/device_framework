@@ -12,11 +12,10 @@
  * 6. HandleInterrupt 回调机制与幂等性验证
  */
 
-#include "device_framework/detail/virtio/device/virtio_blk.hpp"
+#include "device_framework/virtio_blk.hpp"
 
 #include <cstdint>
 
-#include "device_framework/detail/virtio/traits.hpp"
 #include "test.h"
 #include "test_env.h"
 

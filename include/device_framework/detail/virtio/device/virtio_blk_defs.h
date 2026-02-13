@@ -2,13 +2,13 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEFS_H_
-#define DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEFS_H_
+#ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEFS_H_
+#define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEFS_H_
 
 #include <cstddef>
 #include <cstdint>
 
-namespace device_framework::virtio::blk {
+namespace device_framework::detail::virtio::blk {
 
 /**
  * @brief 块设备特性位定义
@@ -293,6 +293,7 @@ struct VirtioStats {
   uint64_t queue_full_errors{0};
 };
 
-}  // namespace device_framework::virtio::blk
+}  // namespace device_framework::detail::virtio::blk
 
-#endif /* DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEFS_H_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_DEFS_H_ \
+        */

@@ -2,14 +2,14 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_DEVICE_INITIALIZER_HPP_
-#define DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_DEVICE_INITIALIZER_HPP_
+#ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_DEVICE_INITIALIZER_HPP_
+#define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_DEVICE_INITIALIZER_HPP_
 
 #include "device_framework/detail/virtio/traits.hpp"
 #include "device_framework/detail/virtio/transport/transport.hpp"
 #include "device_framework/expected.hpp"
 
-namespace device_framework::virtio {
+namespace device_framework::detail::virtio {
 
 /**
  * @brief Virtio 设备初始化器
@@ -217,6 +217,7 @@ class DeviceInitializer {
   TransportImpl& transport_;
 };
 
-}  // namespace device_framework::virtio
+}  // namespace device_framework::detail::virtio
 
-#endif /* DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_DEVICE_INITIALIZER_HPP_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_DEVICE_INITIALIZER_HPP_ \
+        */

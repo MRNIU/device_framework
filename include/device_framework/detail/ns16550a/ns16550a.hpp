@@ -2,13 +2,13 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DETAIL_NS16550A_NS16550A_HPP_
-#define DEVICE_FRAMEWORK_DETAIL_NS16550A_NS16550A_HPP_
+#ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_NS16550A_NS16550A_HPP_
+#define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_NS16550A_NS16550A_HPP_
 
 #include <cstdint>
 #include <optional>
 
-namespace device_framework::ns16550a {
+namespace device_framework::detail::ns16550a {
 
 /**
  * @brief NS16550A 串口驱动
@@ -126,6 +126,7 @@ class Ns16550a {
   uint64_t base_addr_ = 0;
 };
 
-}  // namespace device_framework::ns16550a
+}  // namespace device_framework::detail::ns16550a
 
-#endif /* DEVICE_FRAMEWORK_DETAIL_NS16550A_NS16550A_HPP_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_NS16550A_NS16550A_HPP_ \
+        */

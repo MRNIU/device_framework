@@ -2,12 +2,12 @@
  * @copyright Copyright The device_framework Contributors
  */
 
-#ifndef DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEFS_H_
-#define DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEFS_H_
+#ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEFS_H_
+#define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEFS_H_
 
 #include <cstdint>
 
-namespace device_framework::virtio {
+namespace device_framework::detail::virtio {
 
 /**
  * @brief Virtio 设备 ID 定义
@@ -86,6 +86,6 @@ enum class ReservedFeature : uint64_t {
   kRingReset = 0x10000000000,
 };
 
-}  // namespace device_framework::virtio
+}  // namespace device_framework::detail::virtio
 
-#endif /* DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEFS_H_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEFS_H_ */
