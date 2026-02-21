@@ -8,13 +8,15 @@
 #include <cstdint>
 #include <optional>
 
+#include "device_framework/detail/mmio_accessor.hpp"
+
 namespace device_framework::detail::pl011 {
 
 /**
  * @brief PL011 串口驱动
  *
  * 通过 MMIO 访问 PL011 UART 寄存器，提供字符读写功能。
- * Header-only 实现，使用 volatile 指针直接访问寄存器。
+ * Header-only 实现，使用 MmioAccessor 进行寄存器访问。
  *
  * @see https://developer.arm.com/documentation/ddi0183/g/
  */
@@ -27,24 +29,19 @@ class Pl011 {
    * @param baud_rate 波特率（0 表示不设置波特率）
    */
   explicit Pl011(uint64_t dev_addr, uint64_t clock = 0, uint64_t baud_rate = 0)
-      : base_addr_(dev_addr), base_clock_(clock), baud_rate_(baud_rate) {
-    // Clear all errors
-    Write32(kRegRSRECR, 0);
-    // Disable everything
-    Write32(kRegCR, 0);
+      : mmio_(dev_addr), base_clock_(clock), baud_rate_(baud_rate) {
+    mmio_.Write<uint32_t>(kRegRSRECR, 0);
+    mmio_.Write<uint32_t>(kRegCR, 0);
 
     if (baud_rate_ != 0) {
       uint32_t divisor = (base_clock_ * 4) / baud_rate_;
-      Write32(kRegIBRD, divisor >> 6);
-      Write32(kRegFBRD, divisor & 0x3f);
+      mmio_.Write<uint32_t>(kRegIBRD, divisor >> 6);
+      mmio_.Write<uint32_t>(kRegFBRD, divisor & 0x3f);
     }
 
-    // Configure TX to 8 bits, 1 stop bit, no parity, fifo disabled
-    Write32(kRegLCRH, kLCRHWlen8);
-    // Enable receive interrupt
-    Write32(kRegIMSC, kIMSCRxim);
-    // Enable UART and RX/TX
-    Write32(kRegCR, kCREnable | kCRTxEnable | kCRRxEnable);
+    mmio_.Write<uint32_t>(kRegLCRH, kLCRHWlen8);
+    mmio_.Write<uint32_t>(kRegIMSC, kIMSCRxim);
+    mmio_.Write<uint32_t>(kRegCR, kCREnable | kCRTxEnable | kCRRxEnable);
   }
 
   /// @name 默认构造/析构函数
@@ -62,10 +59,9 @@ class Pl011 {
    * @param c 待写入的字符
    */
   void PutChar(uint8_t c) const {
-    // Wait until there is space in the FIFO
-    while (Read32(kRegFR) & kFRTxFIFO) {
+    while (mmio_.Read<uint32_t>(kRegFR) & kFRTxFIFO) {
     }
-    Write32(kRegDR, c);
+    mmio_.Write<uint32_t>(kRegDR, c);
   }
 
   /**
@@ -73,10 +69,9 @@ class Pl011 {
    * @return 读取到的字符
    */
   [[nodiscard]] auto GetChar() const -> uint8_t {
-    // Wait until there is data in the FIFO
-    while (Read32(kRegFR) & kFRRXFE) {
+    while (mmio_.Read<uint32_t>(kRegFR) & kFRRXFE) {
     }
-    return static_cast<uint8_t>(Read32(kRegDR));
+    return static_cast<uint8_t>(mmio_.Read<uint32_t>(kRegDR));
   }
 
   /**
@@ -84,10 +79,10 @@ class Pl011 {
    * @return 读取到的字符，如果没有数据则返回 std::nullopt
    */
   [[nodiscard]] auto TryGetChar() const -> std::optional<uint8_t> {
-    if (Read32(kRegFR) & kFRRXFE) {
+    if (mmio_.Read<uint32_t>(kRegFR) & kFRRXFE) {
       return std::nullopt;
     }
-    return static_cast<uint8_t>(Read32(kRegDR));
+    return static_cast<uint8_t>(mmio_.Read<uint32_t>(kRegDR));
   }
 
   /**
@@ -95,7 +90,7 @@ class Pl011 {
    * @return true 如果有数据可读
    */
   [[nodiscard]] auto HasData() const -> bool {
-    return !(Read32(kRegFR) & kFRRXFE);
+    return !(mmio_.Read<uint32_t>(kRegFR) & kFRRXFE);
   }
 
   /**
@@ -107,7 +102,7 @@ class Pl011 {
    * @see ARM PL011 Technical Reference Manual
    */
   [[nodiscard]] auto GetMaskedInterruptStatus() const -> uint32_t {
-    return Read32(kRegMIS);
+    return mmio_.Read<uint32_t>(kRegMIS);
   }
 
   /**
@@ -118,7 +113,7 @@ class Pl011 {
    * @return 原始中断状态位掩码
    */
   [[nodiscard]] auto GetRawInterruptStatus() const -> uint32_t {
-    return Read32(kRegRIS);
+    return mmio_.Read<uint32_t>(kRegRIS);
   }
 
   /**
@@ -128,7 +123,9 @@ class Pl011 {
    *
    * @param mask 要清除的中断位掩码
    */
-  auto ClearInterrupt(uint32_t mask) const -> void { Write32(kRegICR, mask); }
+  auto ClearInterrupt(uint32_t mask) const -> void {
+    mmio_.Write<uint32_t>(kRegICR, mask);
+  }
 
   /**
    * @brief 检查是否有中断挂起
@@ -139,16 +136,6 @@ class Pl011 {
   }
 
  private:
-  /// @brief 读取 32 位寄存器
-  [[nodiscard]] auto Read32(uint32_t reg) const -> uint32_t {
-    return *reinterpret_cast<volatile uint32_t*>(base_addr_ + reg);
-  }
-
-  /// @brief 写入 32 位寄存器
-  void Write32(uint32_t reg, uint32_t val) const {
-    *reinterpret_cast<volatile uint32_t*>(base_addr_ + reg) = val;
-  }
-
   /// data register
   static constexpr uint32_t kRegDR = 0x00;
   /// receive status or error clear
@@ -187,7 +174,7 @@ class Pl011 {
   /// interrupt mask bits
   static constexpr uint32_t kIMSCRxim = (1 << 4);
 
-  uint64_t base_addr_ = 0;
+  MmioAccessor mmio_;
   uint64_t base_clock_ = 0;
   uint64_t baud_rate_ = 0;
 };

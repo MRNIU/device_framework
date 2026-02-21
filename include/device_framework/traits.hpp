@@ -52,12 +52,25 @@ concept DmaTraits = requires(void* ptr, uintptr_t phys) {
 /// @}
 
 /**
+ * @brief 可选 Traits：轮询自旋上限
+ *
+ * 若 Traits 提供 kMaxSpinIterations 静态常量，
+ * 同步轮询（如 VirtioBlk::Read/Write）将以此为上限；
+ * 否则回退到内部默认值。
+ */
+template <typename T>
+concept SpinWaitTraits = requires {
+  { T::kMaxSpinIterations } -> std::convertible_to<uint32_t>;
+};
+
+/**
  * @brief 零开销默认 Traits
  *
  * 满足全部 concept（EnvironmentTraits + BarrierTraits + DmaTraits），
  * 所有方法在编译期消除。
  */
 struct NullTraits {
+  static constexpr uint32_t kMaxSpinIterations = 100000000;
   static auto Log(const char* /*fmt*/, ...) -> int { return 0; }
   static auto Mb() -> void {}
   static auto Rmb() -> void {}

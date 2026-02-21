@@ -5,6 +5,7 @@
 #ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_OPS_BLOCK_DEVICE_HPP_
 #define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_OPS_BLOCK_DEVICE_HPP_
 
+#include "device_framework/defs.h"
 #include "device_framework/ops/device_ops_base.hpp"
 
 namespace device_framework {
@@ -24,6 +25,14 @@ namespace device_framework {
 template <class Derived>
 class BlockDevice : public DeviceOperationsBase<Derived> {
  public:
+  /**
+   * @brief 获取设备类型
+   * @return DeviceType::kBlock
+   */
+  [[nodiscard]] static constexpr auto GetDeviceType() -> DeviceType {
+    return DeviceType::kBlock;
+  }
+
   /**
    * @brief 从设备读取指定数量的块
    *

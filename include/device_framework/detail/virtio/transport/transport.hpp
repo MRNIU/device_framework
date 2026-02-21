@@ -12,6 +12,60 @@
 namespace device_framework::detail::virtio {
 
 /**
+ * @brief Virtio 传输层接口约束
+ *
+ * 编译期约束传输层实现必须提供的完整方法集。
+ * DeviceInitializer 的 TransportImpl 参数必须满足此 concept。
+ *
+ * @note 部分方法（GetDeviceFeatures、GetQueueNumMax、GetQueueReady）
+ *       在 MMIO 实现中非 const（需写选择器寄存器），因此 concept 对
+ *       这些方法不要求 const 限定。
+ *
+ * @see virtio-v1.2#4 Virtio Transport Options
+ */
+template <typename T>
+concept TransportConcept =
+    requires(T t, const T ct, uint32_t u32, uint64_t u64) {
+      // 设备有效性
+      { ct.IsValid() } -> std::same_as<bool>;
+
+      // 设备/供应商标识
+      { ct.GetDeviceId() } -> std::same_as<uint32_t>;
+      { ct.GetVendorId() } -> std::same_as<uint32_t>;
+
+      // 设备状态
+      { ct.GetStatus() } -> std::same_as<uint32_t>;
+      { t.SetStatus(u32) } -> std::same_as<void>;
+
+      // 特性协商（非 const：MMIO 需写选择器寄存器）
+      { t.GetDeviceFeatures() } -> std::same_as<uint64_t>;
+      { t.SetDriverFeatures(u64) } -> std::same_as<void>;
+
+      // 队列配置（非 const：MMIO 需写 QueueSel）
+      { t.GetQueueNumMax(u32) } -> std::same_as<uint32_t>;
+      { t.SetQueueNum(u32, u32) } -> std::same_as<void>;
+      { t.SetQueueDesc(u32, u64) } -> std::same_as<void>;
+      { t.SetQueueAvail(u32, u64) } -> std::same_as<void>;
+      { t.SetQueueUsed(u32, u64) } -> std::same_as<void>;
+      { t.GetQueueReady(u32) } -> std::same_as<bool>;
+      { t.SetQueueReady(u32, static_cast<bool>(true)) } -> std::same_as<void>;
+
+      // 队列通知
+      { t.NotifyQueue(u32) } -> std::same_as<void>;
+
+      // 中断处理
+      { ct.GetInterruptStatus() } -> std::same_as<uint32_t>;
+      { t.AckInterrupt(u32) } -> std::same_as<void>;
+
+      // 配置空间读取
+      { ct.ReadConfigU8(u32) } -> std::same_as<uint8_t>;
+      { ct.ReadConfigU16(u32) } -> std::same_as<uint16_t>;
+      { ct.ReadConfigU32(u32) } -> std::same_as<uint32_t>;
+      { ct.ReadConfigU64(u32) } -> std::same_as<uint64_t>;
+      { ct.GetConfigGeneration() } -> std::same_as<uint32_t>;
+    };
+
+/**
  * @brief Virtio 传输层基类（零虚表开销，C++23 Deducing this）
  *
  * 利用 C++23 Deducing this（显式对象参数，P0847）实现编译期多态，
@@ -21,31 +75,10 @@ namespace device_framework::detail::virtio {
  * 基类仅提供通用逻辑方法（Reset、NeedsReset、IsActive、AcknowledgeInterrupt），
  * 通过 Deducing this 在编译期静态分发到子类的具体实现。
  *
- * 子类应提供以下方法（隐式接口）：
- * - IsValid() const -> bool
- * - GetDeviceId() const -> uint32_t
- * - GetVendorId() const -> uint32_t
- * - GetStatus() const -> uint32_t
- * - SetStatus(uint32_t) -> void
- * - GetDeviceFeatures() -> uint64_t
- * - SetDriverFeatures(uint64_t) -> void
- * - GetQueueNumMax(uint32_t) -> uint32_t
- * - SetQueueNum(uint32_t, uint32_t) -> void
- * - SetQueueDesc(uint32_t, uint64_t) -> void
- * - SetQueueAvail(uint32_t, uint64_t) -> void
- * - SetQueueUsed(uint32_t, uint64_t) -> void
- * - GetQueueReady(uint32_t) -> bool
- * - SetQueueReady(uint32_t, bool) -> void
- * - NotifyQueue(uint32_t) -> void
- * - GetInterruptStatus() const -> uint32_t
- * - AckInterrupt(uint32_t) -> void
- * - ReadConfigU8(uint32_t) const -> uint8_t
- * - ReadConfigU16(uint32_t) const -> uint16_t
- * - ReadConfigU32(uint32_t) const -> uint32_t
- * - ReadConfigU64(uint32_t) const -> uint64_t
- * - GetConfigGeneration() const -> uint32_t
+ * 子类应满足 TransportConcept 约束。
  *
  * @tparam Traits 平台环境特征类型
+ * @see TransportConcept
  * @see virtio-v1.2#4 Virtio Transport Options
  */
 template <VirtioTraits Traits = NullVirtioTraits>
@@ -120,4 +153,5 @@ class Transport {
 
 }  // namespace device_framework::detail::virtio
 
-#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRANSPORT_TRANSPORT_HPP_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_TRANSPORT_TRANSPORT_HPP_ \
+        */

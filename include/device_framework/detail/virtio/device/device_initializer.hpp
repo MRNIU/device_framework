@@ -42,7 +42,7 @@ namespace device_framework::detail::virtio {
  * @tparam TransportImpl 具体传输层类型（如 MmioTransport<Traits>）
  * @see virtio-v1.2#3.1.1 Driver Requirements: Device Initialization
  */
-template <VirtioTraits Traits, typename TransportImpl>
+template <VirtioTraits Traits, TransportConcept TransportImpl>
 class DeviceInitializer {
  public:
   /**

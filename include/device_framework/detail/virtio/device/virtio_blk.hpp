@@ -5,6 +5,8 @@
 #ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_HPP_
 #define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_HPP_
 
+#include <cstdint>
+#include <type_traits>
 #include <utility>
 
 #include "device_framework/detail/virtio/defs.h"
@@ -312,48 +314,8 @@ class VirtioBlk {
     if (data == nullptr) {
       return std::unexpected(Error{ErrorCode::kInvalidArgument});
     }
-
     IoVec data_iov{Traits::VirtToPhys(data), kSectorSize};
-    auto enq = EnqueueRead(0, sector, &data_iov, 1, nullptr);
-    if (!enq) {
-      return std::unexpected(enq.error());
-    }
-
-    Kick(0);
-
-    static constexpr uint32_t kMaxSpinIterations = 100000000;
-    for (uint32_t i = 0; i < kMaxSpinIterations; ++i) {
-      Traits::Rmb();
-      if (vq_.HasUsed()) {
-        break;
-      }
-    }
-
-    if (!vq_.HasUsed()) {
-      Traits::Log("Read timeout: sector=%llu, no used buffer after spin",
-                  static_cast<unsigned long long>(sector));
-      return std::unexpected(Error{ErrorCode::kTimeout});
-    }
-
-    ErrorCode result = ErrorCode::kSuccess;
-    bool done = false;
-    ProcessCompletions([&done, &result](UserData /*token*/, ErrorCode status) {
-      done = true;
-      result = status;
-    });
-
-    UpdateUsedEvent();
-
-    if (!done) {
-      Traits::Log(
-          "Read timeout: sector=%llu, ProcessCompletions yielded nothing",
-          static_cast<unsigned long long>(sector));
-      return std::unexpected(Error{ErrorCode::kTimeout});
-    }
-    if (result != ErrorCode::kSuccess) {
-      return std::unexpected(Error{result});
-    }
-    return {};
+    return SubmitSyncRequest(ReqType::kIn, sector, &data_iov, 1);
   }
 
   /**
@@ -372,48 +334,8 @@ class VirtioBlk {
     if (data == nullptr) {
       return std::unexpected(Error{ErrorCode::kInvalidArgument});
     }
-
     IoVec data_iov{Traits::VirtToPhys(const_cast<uint8_t*>(data)), kSectorSize};
-    auto enq = EnqueueWrite(0, sector, &data_iov, 1, nullptr);
-    if (!enq) {
-      return std::unexpected(enq.error());
-    }
-
-    Kick(0);
-
-    static constexpr uint32_t kMaxSpinIterations = 100000000;
-    for (uint32_t i = 0; i < kMaxSpinIterations; ++i) {
-      Traits::Rmb();
-      if (vq_.HasUsed()) {
-        break;
-      }
-    }
-
-    if (!vq_.HasUsed()) {
-      Traits::Log("Write timeout: sector=%llu, no used buffer after spin",
-                  static_cast<unsigned long long>(sector));
-      return std::unexpected(Error{ErrorCode::kTimeout});
-    }
-
-    ErrorCode result = ErrorCode::kSuccess;
-    bool done = false;
-    ProcessCompletions([&done, &result](UserData /*token*/, ErrorCode status) {
-      done = true;
-      result = status;
-    });
-
-    UpdateUsedEvent();
-
-    if (!done) {
-      Traits::Log(
-          "Write timeout: sector=%llu, ProcessCompletions yielded nothing",
-          static_cast<unsigned long long>(sector));
-      return std::unexpected(Error{ErrorCode::kTimeout});
-    }
-    if (result != ErrorCode::kSuccess) {
-      return std::unexpected(Error{result});
-    }
-    return {};
+    return SubmitSyncRequest(ReqType::kOut, sector, &data_iov, 1);
   }
 
   // ======== 配置与监控 ========
@@ -545,15 +467,11 @@ class VirtioBlk {
         vq_(std::move(other.vq_)),
         negotiated_features_(other.negotiated_features_),
         stats_(other.stats_),
+        slot_bitmap_(other.slot_bitmap_),
         old_avail_idx_(other.old_avail_idx_),
         request_completed_(other.request_completed_) {
-    for (uint16_t i = 0; i < kMaxInflight; ++i) {
-      slots_[i].header = other.slots_[i].header;
-      slots_[i].status = other.slots_[i].status;
-      slots_[i].token = other.slots_[i].token;
-      slots_[i].desc_head = other.slots_[i].desc_head;
-      slots_[i].in_use = other.slots_[i].in_use;
-    }
+    CopySlots(other);
+    other.slot_bitmap_ = 0;
   }
   auto operator=(VirtioBlk&& other) noexcept -> VirtioBlk& {
     if (this != &other) {
@@ -561,15 +479,11 @@ class VirtioBlk {
       vq_ = std::move(other.vq_);
       negotiated_features_ = other.negotiated_features_;
       stats_ = other.stats_;
+      slot_bitmap_ = other.slot_bitmap_;
       old_avail_idx_ = other.old_avail_idx_;
       request_completed_ = other.request_completed_;
-      for (uint16_t i = 0; i < kMaxInflight; ++i) {
-        slots_[i].header = other.slots_[i].header;
-        slots_[i].status = other.slots_[i].status;
-        slots_[i].token = other.slots_[i].token;
-        slots_[i].desc_head = other.slots_[i].desc_head;
-        slots_[i].in_use = other.slots_[i].in_use;
-      }
+      CopySlots(other);
+      other.slot_bitmap_ = 0;
     }
     return *this;
   }
@@ -584,6 +498,7 @@ class VirtioBlk {
    *
    * 每个 in-flight 请求占用一个槽，存储请求头（DMA可访问）、
    * 状态字节（设备回写）、用户 token 和描述符链头索引。
+   * 槽的占用状态由 slot_bitmap_ 管理。
    */
   struct RequestSlot {
     /// 请求头（DMA 可访问，设备只读）
@@ -594,8 +509,6 @@ class VirtioBlk {
     UserData token;
     /// 描述符链头索引（用于在 Used Ring 中匹配）
     uint16_t desc_head;
-    /// 该槽是否被占用
-    bool in_use;
   };
 
   /**
@@ -609,12 +522,9 @@ class VirtioBlk {
         vq_(std::move(vq)),
         negotiated_features_(features),
         stats_{},
+        slot_bitmap_(0),
         old_avail_idx_(0),
-        request_completed_(false) {
-    for (uint16_t i = 0; i < kMaxInflight; ++i) {
-      slots_[i].in_use = false;
-    }
-  }
+        request_completed_(false) {}
 
   /**
    * @brief 异步入队请求的内部实现
@@ -737,18 +647,23 @@ class VirtioBlk {
   }
 
   /**
-   * @brief 从请求槽池中分配一个空闲槽
+   * @brief 从请求槽池中分配一个空闲槽（O(1) 位图算法）
+   *
+   * 使用 __builtin_ctzll 找到 slot_bitmap_ 中最低的 0 位。
    *
    * @return 成功返回槽索引，失败返回错误
    */
   [[nodiscard]] auto AllocRequestSlot() -> Expected<uint16_t> {
-    for (uint16_t i = 0; i < kMaxInflight; ++i) {
-      if (!slots_[i].in_use) {
-        slots_[i].in_use = true;
-        return i;
-      }
+    uint64_t free_bits = ~slot_bitmap_;
+    if (free_bits == 0) {
+      return std::unexpected(Error{ErrorCode::kNoFreeDescriptors});
     }
-    return std::unexpected(Error{ErrorCode::kNoFreeDescriptors});
+    auto idx = static_cast<uint16_t>(__builtin_ctzll(free_bits));
+    if (idx >= kMaxInflight) {
+      return std::unexpected(Error{ErrorCode::kNoFreeDescriptors});
+    }
+    slot_bitmap_ |= (uint64_t{1} << idx);
+    return idx;
   }
 
   /**
@@ -758,7 +673,7 @@ class VirtioBlk {
    */
   auto FreeRequestSlot(uint16_t idx) -> void {
     if (idx < kMaxInflight) {
-      slots_[idx].in_use = false;
+      slot_bitmap_ &= ~(uint64_t{1} << idx);
     }
   }
 
@@ -769,10 +684,13 @@ class VirtioBlk {
    * @return 匹配的槽索引，未找到则返回 kMaxInflight
    */
   [[nodiscard]] auto FindSlotByDescHead(uint16_t desc_head) const -> uint16_t {
-    for (uint16_t i = 0; i < kMaxInflight; ++i) {
-      if (slots_[i].in_use && slots_[i].desc_head == desc_head) {
+    uint64_t used = slot_bitmap_;
+    while (used != 0) {
+      auto i = static_cast<uint16_t>(__builtin_ctzll(used));
+      if (slots_[i].desc_head == desc_head) {
         return i;
       }
+      used &= used - 1;  // clear lowest set bit
     }
     return kMaxInflight;
   }
@@ -832,6 +750,81 @@ class VirtioBlk {
     }
   }
 
+  /**
+   * @brief 同步提交请求的内部实现
+   *
+   * Read()/Write() 的共享实现：入队 → Kick → 轮询等待 → 处理完成 → 返回。
+   * 轮询上限由 SpinWaitTraits::kMaxSpinIterations 控制（若 Traits
+   * 未提供则回退默认值）。
+   *
+   * @param type 请求类型（kIn/kOut）
+   * @param sector 起始扇区号
+   * @param buffers 数据缓冲区 IoVec 数组
+   * @param buffer_count 缓冲区数量
+   * @return 成功或失败
+   */
+  [[nodiscard]] auto SubmitSyncRequest(ReqType type, uint64_t sector,
+                                       const IoVec* buffers,
+                                       size_t buffer_count) -> Expected<void> {
+    auto enq = DoEnqueue(type, 0, sector, buffers, buffer_count, nullptr);
+    if (!enq) {
+      return std::unexpected(enq.error());
+    }
+
+    Kick(0);
+
+    constexpr uint32_t spin_limit = [] {
+      if constexpr (SpinWaitTraits<Traits>) {
+        return static_cast<uint32_t>(Traits::kMaxSpinIterations);
+      } else {
+        return uint32_t{100000000};
+      }
+    }();
+
+    for (uint32_t i = 0; i < spin_limit; ++i) {
+      Traits::Rmb();
+      if (vq_.HasUsed()) {
+        break;
+      }
+    }
+
+    if (!vq_.HasUsed()) {
+      Traits::Log("Sync request timeout: sector=%llu",
+                  static_cast<unsigned long long>(sector));
+      return std::unexpected(Error{ErrorCode::kTimeout});
+    }
+
+    ErrorCode result = ErrorCode::kSuccess;
+    bool done = false;
+    ProcessCompletions([&done, &result](UserData, ErrorCode status) {
+      done = true;
+      result = status;
+    });
+    UpdateUsedEvent();
+
+    if (!done) {
+      return std::unexpected(Error{ErrorCode::kTimeout});
+    }
+    if (result != ErrorCode::kSuccess) {
+      return std::unexpected(Error{result});
+    }
+    return {};
+  }
+
+  /**
+   * @brief 逐字段复制请求槽（处理 volatile status 字段）
+   *
+   * @param other 源 VirtioBlk 实例
+   */
+  auto CopySlots(const VirtioBlk& other) -> void {
+    for (uint16_t i = 0; i < kMaxInflight; ++i) {
+      slots_[i].header = other.slots_[i].header;
+      slots_[i].status = other.slots_[i].status;
+      slots_[i].token = other.slots_[i].token;
+      slots_[i].desc_head = other.slots_[i].desc_head;
+    }
+  }
+
   /// 传输层实例
   TransportT<Traits> transport_;
   /// Virtqueue 实例（当前支持单队列）
@@ -842,6 +835,8 @@ class VirtioBlk {
   VirtioStats stats_;
   /// 请求槽池（用于跟踪 in-flight 异步请求）
   RequestSlot slots_[kMaxInflight];
+  /// 请求槽占用位图（bit i = 1 表示 slots_[i] 被占用）
+  uint64_t slot_bitmap_;
   /// 上次 Kick 时的 avail idx（用于 Event Index 通知抑制）
   uint16_t old_avail_idx_;
   /// 请求完成标志（由简化版 HandleInterrupt 在中断上下文中设置）
@@ -850,4 +845,5 @@ class VirtioBlk {
 
 }  // namespace device_framework::detail::virtio::blk
 
-#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_HPP_ */
+#endif /* DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_DETAIL_VIRTIO_DEVICE_VIRTIO_BLK_HPP_ \
+        */

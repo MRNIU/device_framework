@@ -5,6 +5,7 @@
 #ifndef DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_OPS_CHAR_DEVICE_HPP_
 #define DEVICE_FRAMEWORK_INCLUDE_DEVICE_FRAMEWORK_OPS_CHAR_DEVICE_HPP_
 
+#include "device_framework/defs.h"
 #include "device_framework/ops/device_ops_base.hpp"
 
 namespace device_framework {
@@ -62,6 +63,14 @@ struct PollEvents {
 template <class Derived>
 class CharDevice : public DeviceOperationsBase<Derived> {
  public:
+  /**
+   * @brief 获取设备类型
+   * @return DeviceType::kChar
+   */
+  [[nodiscard]] static constexpr auto GetDeviceType() -> DeviceType {
+    return DeviceType::kChar;
+  }
+
   /**
    * @brief 查询设备就绪状态（非阻塞）
    *
